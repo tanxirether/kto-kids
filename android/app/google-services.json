@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "158539866918",
+    "project_id": "kto-2026",
+    "storage_bucket": "kto-2026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:158539866918:android:9852a5c7dd4ae520b597e7",
+        "android_client_info": {
+          "package_name": "com.kto_kids"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBOb8oZz4ri2J_sAjfb2ZhfMZFnD3InZF4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

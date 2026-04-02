@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">kto_kids</string>
+    <string name="accessibility_service_description">KTO Kids accessibility monitoring (foreground app detection)</string>
+</resources>

@@ -1,0 +1,111 @@
+import { NativeModules, NativeEventEmitter, Platform } from "react-native";
+
+const { DeviceAccessModule } = NativeModules;
+
+const emitter = new NativeEventEmitter();
+
+export function openAccessibilitySettings() {
+  if (Platform.OS !== "android") return;
+  DeviceAccessModule?.openAccessibilitySettings?.();
+}
+
+export async function isAccessibilityEnabled() {
+  if (Platform.OS !== "android") return false;
+  if (!DeviceAccessModule?.isAccessibilityEnabled) return false;
+  return await DeviceAccessModule.isAccessibilityEnabled();
+}
+
+export function subscribeAccessibilityEvents(callback) {
+  if (Platform.OS !== "android") return { remove: () => {} };
+  return emitter.addListener("AccessibilityEventDetected", callback);
+}
+
+export function setBlockedPackages(packages) {
+  if (Platform.OS !== "android") return;
+  if (!Array.isArray(packages)) return;
+  DeviceAccessModule?.setBlockedPackages?.(packages);
+}
+
+export async function getBlockedPackages() {
+  if (Platform.OS !== "android") return [];
+  if (!DeviceAccessModule?.getBlockedPackages) return [];
+  return await DeviceAccessModule.getBlockedPackages();
+}
+
+export function setDailyLimitsMs(limitsMsByPackage) {
+  if (Platform.OS !== "android") return;
+  if (!limitsMsByPackage || typeof limitsMsByPackage !== "object") return;
+  DeviceAccessModule?.setDailyLimitsMs?.(limitsMsByPackage);
+}
+
+export async function getDailyLimitsMs() {
+  if (Platform.OS !== "android") return {};
+  if (!DeviceAccessModule?.getDailyLimitsMs) return {};
+  return await DeviceAccessModule.getDailyLimitsMs();
+}
+
+export function setKeywords(keywords) {
+  if (Platform.OS !== "android") return;
+  if (!Array.isArray(keywords)) return;
+  DeviceAccessModule?.setKeywords?.(keywords);
+}
+
+export async function getKeywords() {
+  if (Platform.OS !== "android") return [];
+  if (!DeviceAccessModule?.getKeywords) return [];
+  return await DeviceAccessModule.getKeywords();
+}
+
+export async function getTodayUsageMs() {
+  if (Platform.OS !== "android") return {};
+  if (!DeviceAccessModule?.getTodayUsageMs) return {};
+  return await DeviceAccessModule.getTodayUsageMs();
+}
+
+export async function clearAllUsage() {
+  if (Platform.OS !== "android") return false;
+  if (!DeviceAccessModule?.clearAllUsage) return false;
+  return await DeviceAccessModule.clearAllUsage();
+}
+
+export async function getLastForeground() {
+  if (Platform.OS !== "android") return { packageName: "", timestampMs: 0 };
+  if (!DeviceAccessModule?.getLastForeground) return { packageName: "", timestampMs: 0 };
+  return await DeviceAccessModule.getLastForeground();
+}
+
+export function openUsageAccessSettings() {
+  if (Platform.OS !== "android") return;
+  DeviceAccessModule?.openUsageAccessSettings?.();
+}
+
+export async function hasUsageAccess() {
+  if (Platform.OS !== "android") return false;
+  if (!DeviceAccessModule?.hasUsageAccess) return false;
+  return await DeviceAccessModule.hasUsageAccess();
+}
+
+export async function getTodayUsageMsUsageStats() {
+  if (Platform.OS !== "android") return {};
+  if (!DeviceAccessModule?.getTodayUsageMsUsageStats) return {};
+  return await DeviceAccessModule.getTodayUsageMsUsageStats();
+}
+
+export async function getCurrentForegroundPackage() {
+  if (Platform.OS !== "android") return "";
+  if (!DeviceAccessModule?.getCurrentForegroundPackage) return "";
+  return await DeviceAccessModule.getCurrentForegroundPackage();
+}
+
+export async function getUsageAccessDebug() {
+  if (Platform.OS !== "android") return {};
+  if (!DeviceAccessModule?.getUsageAccessDebug) return {};
+  return await DeviceAccessModule.getUsageAccessDebug();
+}
+
+export async function getAccessibilityServiceHealth() {
+  if (Platform.OS !== "android") return { lastError: "", lastErrorTsMs: 0 };
+  if (!DeviceAccessModule?.getAccessibilityServiceHealth) return { lastError: "", lastErrorTsMs: 0 };
+  return await DeviceAccessModule.getAccessibilityServiceHealth();
+}
+
