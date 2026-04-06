@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import instance from "../../api/api_instance";
+import { recordActivitiesSyncSuccess } from "../../services/MonitoringSnapshotService";
 import {
   getDailyLimitsMs,
   getKeywords,
@@ -30,6 +33,8 @@ export default function UsageDebug({ navigation }) {
   const [keywords, setKeywordsState] = useState([]);
   const [svcHealth, setSvcHealth] = useState({ lastError: "", lastErrorTsMs: 0 });
   const [error, setError] = useState("");
+  const [sendingActivity, setSendingActivity] = useState(false);
+  const [activityApiResult, setActivityApiResult] = useState(null);
 
   const rows = useMemo(() => {
     const entries = Object.entries(usage || {});
@@ -75,6 +80,31 @@ export default function UsageDebug({ navigation }) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  const sendActivityDebug = useCallback(async () => {
+    setSendingActivity(true);
+    setActivityApiResult(null);
+    try {
+      const storedTrackId = (await AsyncStorage.getItem("trackid"))?.trim();
+      const payload = {
+        trackId: storedTrackId || "nWhKMDsO",
+        appName: "YouTube",
+        packageName: "com.google.android.youtube",
+        durationMinutes: 45,
+      };
+      const response = await instance.post("/activities", payload);
+      await recordActivitiesSyncSuccess();
+      setActivityApiResult(response?.data || { ok: true });
+    } catch (err) {
+      setActivityApiResult({
+        success: false,
+        message: err?.response?.data?.message || err?.message || "Activity API call failed",
+        data: err?.response?.data || null,
+      });
+    } finally {
+      setSendingActivity(false);
+    }
+  }, []);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -145,6 +175,21 @@ export default function UsageDebug({ navigation }) {
               </View>
             ))
           )}
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Activities API Debug</Text>
+          <TouchableOpacity onPress={sendActivityDebug} style={styles.actionBtn} disabled={sendingActivity}>
+            <Text style={styles.actionBtnText}>
+              {sendingActivity ? "Sending..." : "Send /activities test payload"}
+            </Text>
+          </TouchableOpacity>
+          <Text style={[styles.dim, { marginTop: 8 }]}>
+            Payload: {`{ trackId, appName: "YouTube", packageName: "com.google.android.youtube", durationMinutes: 45 }`}
+          </Text>
+          {activityApiResult ? (
+            <Text style={[styles.mono, { marginTop: 8 }]}>{JSON.stringify(activityApiResult)}</Text>
+          ) : null}
         </View>
       </ScrollView>
     </SafeAreaView>

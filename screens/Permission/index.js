@@ -18,10 +18,12 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { check, PERMISSIONS, RESULTS } from 'react-native-permissions'
 import { Camera, useCameraDevice, useCameraFormat } from 'react-native-vision-camera'
 import ViewShot from 'react-native-view-shot'
+import notifee, { AndroidImportance } from '@notifee/react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { register as registerCameraCapture, unregister as unregisterCameraCapture } from '../../services/CameraCaptureRegistry'
 import { getPending as getPendingCameraCapture, clearPending as clearPendingCameraCapture } from '../../services/PendingCameraCaptureManager'
 import { uploadCameraPhoto } from '../../services/CameraPhotoService'
+import { debugStartForegroundService, debugStopForegroundService } from '../../services/ForegroundServiceManager'
 
 const { ScreenLock } = NativeModules
 
@@ -233,6 +235,77 @@ const Permission = ({ navigation }) => {
 
   const allAllowed = Object.values(permissions).every(v => v === true)
 
+  const handleDebugStartService = async () => {
+    try {
+      await debugStartForegroundService()
+      Alert.alert('Service test', 'Foreground service start requested. Check notification panel.')
+    } catch (e) {
+      try {
+        await notifee.requestPermission()
+        const channelId = await notifee.createChannel({
+          id: 'debug_fg_service_fallback',
+          name: 'Debug Foreground Service',
+          importance: AndroidImportance.HIGH,
+        })
+        await notifee.displayNotification({
+          id: 'debug-fg-fallback',
+          title: 'KTO Kids Monitoring (fallback)',
+          body: 'Foreground fallback is running. If you see this, notification path is healthy.',
+          android: {
+            channelId,
+            asForegroundService: true,
+            ongoing: true,
+            importance: AndroidImportance.HIGH,
+            pressAction: { id: 'default' },
+          },
+        })
+        Alert.alert(
+          'Service fallback started',
+          `Primary foreground service failed, fallback started.\n\nError: ${e?.message || 'unknown'}`,
+        )
+      } catch (fallbackErr) {
+        Alert.alert(
+          'Service test failed',
+          `Primary error: ${e?.message || 'unknown'}\nFallback error: ${fallbackErr?.message || 'unknown'}`,
+        )
+      }
+    }
+  }
+
+  const handleDebugStopService = async () => {
+    try {
+      await debugStopForegroundService()
+      await notifee.stopForegroundService().catch(() => {})
+      await notifee.cancelNotification('debug-fg-fallback').catch(() => {})
+      Alert.alert('Service test', 'Foreground service stop requested.')
+    } catch (e) {
+      Alert.alert('Service stop failed', e?.message || 'Could not stop foreground service')
+    }
+  }
+
+  const handleDebugLocalNotification = async () => {
+    try {
+      await notifee.requestPermission()
+      const channelId = await notifee.createChannel({
+        id: 'debug_service_test',
+        name: 'Debug Service Test',
+        importance: AndroidImportance.HIGH,
+      })
+      await notifee.displayNotification({
+        title: 'KTO Debug Notification',
+        body: 'If you can see this, Android notifications are working.',
+        android: {
+          channelId,
+          pressAction: { id: 'default' },
+          importance: AndroidImportance.HIGH,
+        },
+      })
+      Alert.alert('Debug notification', 'Local test notification sent.')
+    } catch (e) {
+      Alert.alert('Debug notification failed', e?.message || 'Could not send local notification')
+    }
+  }
+
   /* ================= UI ITEM ================= */
 
   const PermissionItem = ({ title, subtitle, permissionKey, icon }) => (
@@ -312,6 +385,21 @@ const Permission = ({ navigation }) => {
 
         {/* Confirm */}
         <View style={styles.buttonContainer}>
+          {__DEV__ ? (
+            <View style={styles.debugButtonsRow}>
+              <TouchableOpacity style={styles.debugButtonPrimary} onPress={handleDebugStartService}>
+                <Text style={styles.debugButtonText}>Test Service Notification</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.debugButtonSecondary} onPress={handleDebugStopService}>
+                <Text style={styles.debugButtonText}>Stop Service</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+          {__DEV__ ? (
+            <TouchableOpacity style={styles.debugButtonNeutral} onPress={handleDebugLocalNotification}>
+              <Text style={styles.debugButtonText}>Send Local Debug Notification</Text>
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity
             disabled={!allAllowed}
             style={[styles.confirmButton, { opacity: allAllowed ? 1 : 0.5 }]}
@@ -358,6 +446,37 @@ const styles = StyleSheet.create({
   buttonContainer: {
     position: "absolute", bottom: 0, left: 0, right: 0,
     padding: 16, backgroundColor: "#FFF", borderTopWidth: 1, borderTopColor: "#E5E7EB"
+  },
+  debugButtonsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  debugButtonPrimary: {
+    flex: 1,
+    backgroundColor: '#7C3AED',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  debugButtonSecondary: {
+    flex: 1,
+    backgroundColor: '#6B7280',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  debugButtonText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  debugButtonNeutral: {
+    backgroundColor: '#0EA5E9',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginBottom: 10,
   },
   confirmButton: {
     backgroundColor: "#2563EB", paddingVertical: 14, borderRadius: 12, alignItems: "center"

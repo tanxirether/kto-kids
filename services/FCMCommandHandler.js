@@ -6,6 +6,19 @@
 import { NativeModules, Alert, Platform } from 'react-native';
 import { showScreenshotRequestNotification, showCameraCaptureRequestNotification } from './ScreenshotNotificationService';
 import { setPending as setPendingScreenshot } from './PendingScreenshotManager';
+import { applyMonitoringRules } from './MonitoringRulesSync';
+import { uploadMonitoringSnapshot } from './MonitoringSnapshotService';
+import { wasCommandHandled } from './CommandDedupStore';
+import {
+  getAccessibilityServiceHealth,
+  getCurrentForegroundPackage,
+  getLastForeground,
+  getTodayUsageMs,
+  getTodayUsageMsUsageStats,
+  getUsageAccessDebug,
+  hasUsageAccess,
+  isAccessibilityEnabled,
+} from './AccessibilityServiceBridge';
 
 // Flag for ForegroundServiceManager - don't start service during screenshot (prevents activity destruction)
 let _screenshotInProgress = false;
@@ -21,6 +34,152 @@ import { getCameraCaptureHandler } from './CameraCaptureRegistry';
 import { setPending as setPendingCameraCapture } from './PendingCameraCaptureManager';
 
 const { ScreenshotModule, ScreenLock } = NativeModules;
+
+function getCommandId(remoteMessage) {
+  const data = remoteMessage?.data || {};
+  return (
+    data.commandId ||
+    data.cmdId ||
+    data.id ||
+    remoteMessage?.messageId ||
+    remoteMessage?.message_id ||
+    ''
+  );
+}
+
+function shouldBypassDedup(data = {}) {
+  const retry = String(data.retry || '').toLowerCase();
+  const force = String(data.force || '').toLowerCase();
+  return retry === 'true' || force === 'true' || retry === '1' || force === '1';
+}
+
+function parseJsonMaybe(value, fallback) {
+  if (value == null) return fallback;
+  if (typeof value === 'object') return value;
+  if (typeof value !== 'string') return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function extractRulesFromData(data) {
+  const rulesObject = parseJsonMaybe(data?.rules, null);
+  if (rulesObject && typeof rulesObject === 'object') return rulesObject;
+
+  const limitsMsByPackage = parseJsonMaybe(data?.limitsMsByPackage, null);
+  const keywords = parseJsonMaybe(data?.keywords, null);
+  const blockedPackages = parseJsonMaybe(data?.blockedPackages, null);
+
+  return {
+    ...(limitsMsByPackage && typeof limitsMsByPackage === 'object' ? { limitsMsByPackage } : {}),
+    ...(Array.isArray(keywords) ? { keywords } : {}),
+    ...(Array.isArray(blockedPackages) ? { blockedPackages } : {}),
+  };
+}
+
+async function handleRulesUpdate(data, options = {}) {
+  const { isBackground = false } = options;
+  const rules = extractRulesFromData(data);
+  if (!rules || Object.keys(rules).length === 0) {
+    console.warn('FCMCommandHandler: rules update command has no rule payload');
+    return;
+  }
+
+  await applyMonitoringRules(rules);
+  console.log('FCMCommandHandler: monitoring rules applied');
+
+  if (!isBackground && Alert?.alert) {
+    Alert.alert('Notice', 'Monitoring rules updated by parent.');
+  }
+}
+
+/** Same source as Usage Debug "Today usage" when Usage Access is granted (UsageStats). */
+async function getUsageForSnapshot() {
+  const ua = await hasUsageAccess().catch(() => false);
+  if (ua) {
+    const stats = await getTodayUsageMsUsageStats().catch(() => ({}));
+    if (stats && typeof stats === 'object' && Object.keys(stats).length > 0) {
+      return stats;
+    }
+  }
+  return getTodayUsageMs().catch(() => ({}));
+}
+
+async function buildUsageSnapshot(data = {}) {
+  const includeDebug = String(data?.includeDebug || '').toLowerCase() === 'true';
+  const [usageByPackage, lastForeground, currentForeground, usageAccess, accessibilityEnabled, usageDebug] =
+    await Promise.all([
+      getUsageForSnapshot(),
+      getLastForeground().catch(() => ({ packageName: '', timestampMs: 0 })),
+      getCurrentForegroundPackage().catch(() => ''),
+      hasUsageAccess().catch(() => false),
+      isAccessibilityEnabled().catch(() => false),
+      includeDebug ? getUsageAccessDebug().catch(() => ({})) : Promise.resolve({}),
+    ]);
+
+  return {
+    usageByPackage,
+    lastForeground,
+    currentForegroundPackage: currentForeground,
+    hasUsageAccess: usageAccess,
+    isAccessibilityEnabled: accessibilityEnabled,
+    usageDebug,
+  };
+}
+
+async function buildHealthSnapshot(data = {}) {
+  const includeUsage = String(data?.includeUsage || '').toLowerCase() === 'true';
+  const [usageAccess, accessibilityEnabled, accessibilityServiceHealth, lastForeground] =
+    await Promise.all([
+      hasUsageAccess().catch(() => false),
+      isAccessibilityEnabled().catch(() => false),
+      getAccessibilityServiceHealth().catch(() => ({
+        lastError: '',
+        lastErrorTsMs: 0,
+        lastAccessibilityEventTsMs: 0,
+        accessibilityEventCount: 0,
+        accessibilityStaleMs: -1,
+      })),
+      getLastForeground().catch(() => ({ packageName: '', timestampMs: 0 })),
+    ]);
+
+  const health = {
+    hasUsageAccess: usageAccess,
+    isAccessibilityEnabled: accessibilityEnabled,
+    accessibilityServiceHealth,
+    lastForeground,
+    checkedAtMs: Date.now(),
+  };
+
+  if (includeUsage) {
+    health.usageByPackage = await getUsageForSnapshot();
+  }
+  return health;
+}
+
+async function handleUsageSnapshotRequest(data, options = {}) {
+  const { isBackground = false } = options;
+  const snapshot = await buildUsageSnapshot(data);
+  await uploadMonitoringSnapshot(snapshot);
+  console.log('FCMCommandHandler: usage snapshot uploaded');
+
+  if (!isBackground && Alert?.alert) {
+    Alert.alert('Notice', 'Usage snapshot sent to parent.');
+  }
+}
+
+async function handleHealthSnapshotRequest(data, options = {}) {
+  const { isBackground = false } = options;
+  const snapshot = await buildHealthSnapshot(data);
+  await uploadMonitoringSnapshot({ kind: 'health', ...snapshot });
+  console.log('FCMCommandHandler: health snapshot uploaded');
+
+  if (!isBackground && Alert?.alert) {
+    Alert.alert('Notice', 'Device health snapshot sent to parent.');
+  }
+}
 
 function parseCameraType(data) {
   let cameraType = 'front';
@@ -169,20 +328,45 @@ function handleLock(data, options = {}) {
  */
 export function handleFCMCommand(remoteMessage, options = {}) {
   const { isBackground = false } = options;
-  const { command } = remoteMessage.data || {};
+  const data = remoteMessage?.data || {};
+  const { command } = data;
   if (!command) return;
 
-  console.log('FCM command:', command);
+  return (async () => {
+    const commandId = getCommandId(remoteMessage);
+    if (commandId && !shouldBypassDedup(data)) {
+      const handled = await wasCommandHandled(commandId);
+      if (handled) {
+        console.log('Duplicate command ignored:', command, commandId);
+        return;
+      }
+    }
 
-  switch (command) {
-    case 'SCREENSHOT':
-      return handleScreenshot(remoteMessage.data, { isBackground });
-    case 'LOCK':
-      return handleLock(remoteMessage.data, { isBackground });
-    case 'CAPTURE_CAMERA':
-    case 'TAKE_PHOTO':
-      return handleCaptureCamera(remoteMessage.data, { isBackground });
-    default:
-      console.log('Unhandled command:', command);
-  }
+    console.log('FCM command:', command, commandId ? `(id=${commandId})` : '');
+
+    switch (command) {
+      case 'SCREENSHOT':
+        return handleScreenshot(data, { isBackground });
+      case 'LOCK':
+        return handleLock(data, { isBackground });
+      case 'CAPTURE_CAMERA':
+      case 'TAKE_PHOTO':
+        return handleCaptureCamera(data, { isBackground });
+      case 'SET_MONITORING_RULES':
+      case 'SET_RULES':
+      case 'UPDATE_RULES':
+      case 'SYNC_RULES':
+        return handleRulesUpdate(data, { isBackground });
+      case 'REQUEST_USAGE_SNAPSHOT':
+      case 'USAGE_SNAPSHOT':
+      case 'SYNC_USAGE':
+        return handleUsageSnapshotRequest(data, { isBackground });
+      case 'REQUEST_HEALTH_SNAPSHOT':
+      case 'HEALTH_SNAPSHOT':
+      case 'PING_HEALTH':
+        return handleHealthSnapshotRequest(data, { isBackground });
+      default:
+        console.log('Unhandled command:', command);
+    }
+  })();
 }

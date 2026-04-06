@@ -41,6 +41,7 @@ class MyAccessibilityService : AccessibilityService() {
   override fun onAccessibilityEvent(event: AccessibilityEvent?) {
     try {
       if (event == null) return
+      ServiceHealthStore.noteAccessibilityEvent(this, System.currentTimeMillis())
 
       val packageName = event.packageName?.toString() ?: return
       val className = event.className?.toString()

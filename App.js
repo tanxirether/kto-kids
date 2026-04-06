@@ -20,6 +20,8 @@ import { handleFCMCommand } from "./services/FCMCommandHandler";
 import { initForegroundServiceManager } from "./services/ForegroundServiceManager";
 import { getTodayUsageMs } from "./services/AccessibilityServiceBridge";
 import { restoreMonitoringRules, subscribeMonitoringEvents } from "./services/MonitoringRulesSync";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { setLinkedTrackId } from "./services/AccessibilityServiceBridge";
 
 const Stack = createNativeStackNavigator();
 
@@ -37,6 +39,17 @@ export default function App() {
       unregisterCapture();
       cleanup?.();
     };
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const t = (await AsyncStorage.getItem("trackid"))?.trim();
+        if (t) await setLinkedTrackId(t);
+      } catch {
+        // ignore
+      }
+    })();
   }, []);
 
   useEffect(() => {

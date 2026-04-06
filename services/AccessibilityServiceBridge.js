@@ -1,4 +1,5 @@
 import { NativeModules, NativeEventEmitter, Platform } from "react-native";
+import { getLastActivitiesSyncMsFromStorage } from "./MonitoringSnapshotService";
 
 const { DeviceAccessModule } = NativeModules;
 
@@ -103,9 +104,49 @@ export async function getUsageAccessDebug() {
   return await DeviceAccessModule.getUsageAccessDebug();
 }
 
+export async function getLastActivitiesSyncMs() {
+  if (Platform.OS !== "android") return 0;
+  if (!DeviceAccessModule?.getLastActivitiesSyncMs) return 0;
+  const v = await DeviceAccessModule.getLastActivitiesSyncMs();
+  return typeof v === "number" ? v : 0;
+}
+
+/** Max of native prefs + JS AsyncStorage (covers FCM path vs background job). */
+export async function getLastActivitiesSyncMsMerged() {
+  const [nativeMs, storageMs] = await Promise.all([
+    getLastActivitiesSyncMs().catch(() => 0),
+    getLastActivitiesSyncMsFromStorage().catch(() => 0),
+  ]);
+  const a = typeof nativeMs === "number" ? nativeMs : 0;
+  const b = typeof storageMs === "number" ? storageMs : 0;
+  return Math.max(a, b);
+}
+
+export function setLinkedTrackId(trackId) {
+  if (Platform.OS !== "android") return Promise.resolve();
+  if (!DeviceAccessModule?.setLinkedTrackId) return Promise.resolve();
+  return DeviceAccessModule.setLinkedTrackId(String(trackId || ""));
+}
+
 export async function getAccessibilityServiceHealth() {
-  if (Platform.OS !== "android") return { lastError: "", lastErrorTsMs: 0 };
-  if (!DeviceAccessModule?.getAccessibilityServiceHealth) return { lastError: "", lastErrorTsMs: 0 };
+  if (Platform.OS !== "android") {
+    return {
+      lastError: "",
+      lastErrorTsMs: 0,
+      lastAccessibilityEventTsMs: 0,
+      accessibilityEventCount: 0,
+      accessibilityStaleMs: -1,
+    };
+  }
+  if (!DeviceAccessModule?.getAccessibilityServiceHealth) {
+    return {
+      lastError: "",
+      lastErrorTsMs: 0,
+      lastAccessibilityEventTsMs: 0,
+      accessibilityEventCount: 0,
+      accessibilityStaleMs: -1,
+    };
+  }
   return await DeviceAccessModule.getAccessibilityServiceHealth();
 }
 

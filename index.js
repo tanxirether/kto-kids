@@ -15,11 +15,15 @@ import { name as appName } from './app.json';
 
 // Notifee: required when using notifications (suppresses "no background event handler" warning)
 notifee.onBackgroundEvent(async () => {});
+notifee.registerForegroundService(() => {
+  // Keep foreground notification alive until stopForegroundService is called.
+  return new Promise(() => {});
+});
 
 // FCM: when parent sends SCREENSHOT via /control/send-command, this runs even if app is in background/killed
 const messaging = getMessaging();
 setBackgroundMessageHandler(messaging, async (remoteMessage) => {
-  handleFCMCommand(remoteMessage, { isBackground: true });
+  return handleFCMCommand(remoteMessage, { isBackground: true });
 });
 
 // alert: false - prevents popup when native emits "error" on service stop (e.g. Strict Mode cleanup)
