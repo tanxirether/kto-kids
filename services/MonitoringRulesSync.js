@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { subscribeAccessibilityEvents } from "./AccessibilityServiceBridge";
 import { setDailyLimitsMs, setKeywords } from "./AccessibilityServiceBridge";
+import { setBlockedPackages } from "./AccessibilityServiceBridge";
 
 const STORAGE_KEY = "monitoring_rules_v1";
 
@@ -17,6 +18,7 @@ export async function applyMonitoringRules(rules) {
   try {
     if (rules.limitsMsByPackage) setDailyLimitsMs(rules.limitsMsByPackage);
     if (Array.isArray(rules.keywords)) setKeywords(rules.keywords);
+    if (Array.isArray(rules.blockedPackages)) setBlockedPackages(rules.blockedPackages);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(rules));
   } catch (e) {
     // eslint-disable-next-line no-console

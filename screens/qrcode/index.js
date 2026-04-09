@@ -4,6 +4,7 @@ import instance from '../../api/api_instance';
 import DeviceInfo from 'react-native-device-info';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import messaging from '@react-native-firebase/messaging';
+import { setLinkedTrackId } from '../../services/AccessibilityServiceBridge';
 
 
 const QRCodeScreen = ({ navigation }) => {
@@ -39,6 +40,7 @@ const QRCodeScreen = ({ navigation }) => {
     const track_id = response?.data?.data?.child?.track_id;
     console.log(track_id)
      await AsyncStorage.setItem('trackid', track_id);
+      await setLinkedTrackId(track_id);
       navigation.navigate('ConnectedScreen');
     
 

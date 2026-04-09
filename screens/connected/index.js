@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import {
     View,
     Text,
@@ -10,25 +10,50 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native'
+import { getLastActivitiesSyncMsMerged, setLinkedTrackId } from '../../services/AccessibilityServiceBridge'
 const { width } = Dimensions.get('window')
+
+function formatLastSync(tsMs) {
+    if (tsMs == null || tsMs <= 0) return 'Not yet'
+    try {
+        return new Date(tsMs).toLocaleString()
+    } catch {
+        return 'Not yet'
+    }
+}
 
 const ConnectedScreen = ({ navigation }) => {
     const [connectedDevice, setConnectedDevice] = useState(null);
-    // console.log(connectedDevice, "connectedDevice state")
-    useEffect(() => {
+    const [lastActivitiesSync, setLastActivitiesSync] = useState(null)
 
-        const fetchConnectedDevice = async () => {
-            try {
-                const deviceData = await AsyncStorage.getItem('trackid');
-                if (deviceData) {
-                    setConnectedDevice(deviceData);
+    useFocusEffect(
+        useCallback(() => {
+            let cancelled = false
+            ;(async () => {
+                try {
+                    const deviceData = await AsyncStorage.getItem('trackid')
+                    if (!cancelled && deviceData) {
+                        setConnectedDevice(deviceData)
+                        await setLinkedTrackId(deviceData)
+                    }
+                } catch (error) {
+                    console.error('Error fetching connected device:', error)
                 }
-            } catch (error) {
-                console.error('Error fetching connected device:', error);
+                try {
+                    const ts = await getLastActivitiesSyncMsMerged()
+                    if (!cancelled) {
+                        setLastActivitiesSync(typeof ts === 'number' ? ts : 0)
+                    }
+                } catch {
+                    if (!cancelled) setLastActivitiesSync(0)
+                }
+            })()
+            return () => {
+                cancelled = true
             }
-        };
-        fetchConnectedDevice();
-    }, []);
+        }, [])
+    )
 
     return (
         <SafeAreaView style={styles.container}>
@@ -66,8 +91,10 @@ const ConnectedScreen = ({ navigation }) => {
                     </View>
                     <View style={styles.divider} />
                     <View style={styles.infoRow}>
-                        <Text style={styles.infoLabel}>Last Sync</Text>
-                        <Text style={styles.infoValue}>Just now</Text>
+                        <Text style={styles.infoLabel}>Last activities sync</Text>
+                        <Text style={[styles.infoValue, styles.syncValue]} numberOfLines={2}>
+                            {formatLastSync(lastActivitiesSync)}
+                        </Text>
                     </View>
                 </View>
 
@@ -158,6 +185,13 @@ const styles = StyleSheet.create({
     infoValue: {
         fontSize: 14,
         color: '#333',
+        fontWeight: '600',
+    },
+    syncValue: {
+        flex: 1,
+        marginLeft: 12,
+        textAlign: 'right',
+        fontSize: 12,
         fontWeight: '600',
     },
     divider: {

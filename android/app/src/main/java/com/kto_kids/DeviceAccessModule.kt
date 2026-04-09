@@ -175,10 +175,52 @@ class DeviceAccessModule(private val reactContext: ReactApplicationContext) :
   @ReactMethod
   fun getAccessibilityServiceHealth(promise: Promise) {
     val (msg, ts) = ServiceHealthStore.getAccessibilityError(reactContext)
+    val (lastEventTs, eventCount) = ServiceHealthStore.getAccessibilityHeartbeat(reactContext)
+    val now = System.currentTimeMillis()
     val map = com.facebook.react.bridge.Arguments.createMap()
     map.putString("lastError", msg)
     map.putDouble("lastErrorTsMs", ts.toDouble())
+    map.putDouble("lastAccessibilityEventTsMs", lastEventTs.toDouble())
+    map.putDouble("accessibilityEventCount", eventCount.toDouble())
+    map.putDouble(
+      "accessibilityStaleMs",
+      if (lastEventTs > 0L) (now - lastEventTs).toDouble() else -1.0,
+    )
     promise.resolve(map)
+  }
+
+  /**
+   * Call from JS after device bind (or on app start) so background jobs can POST without reading RN storage.
+   */
+  @ReactMethod
+  fun setLinkedTrackId(trackId: String, promise: Promise) {
+    try {
+      val v = trackId.trim()
+      if (v.isNotBlank()) {
+        DeviceLinkStore.setTrackId(reactContext, v)
+      }
+      promise.resolve(true)
+    } catch (e: Exception) {
+      promise.reject("E_TRACK", e.message, e)
+    }
+  }
+
+  @ReactMethod
+  fun getLastActivitiesSyncMs(promise: Promise) {
+    promise.resolve(ActivitySyncStore.getLastSyncMs(reactContext).toDouble())
+  }
+
+  @ReactMethod
+  fun setLastActivitiesSyncMs(tsMs: Double, promise: Promise) {
+    try {
+      val v = tsMs.toLong()
+      if (v > 0L) {
+        ActivitySyncStore.setLastSyncMs(reactContext, v)
+      }
+      promise.resolve(true)
+    } catch (e: Exception) {
+      promise.reject("E_SYNC", e.message, e)
+    }
   }
 }
 
