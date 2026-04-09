@@ -58,6 +58,21 @@ react {
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
 def enableProguardInReleaseBuilds = false
+def hasReleaseKeystore =
+        project.hasProperty('MYAPP_UPLOAD_STORE_FILE') &&
+                MYAPP_UPLOAD_STORE_FILE &&
+                file(MYAPP_UPLOAD_STORE_FILE).exists()
+
+// Never ship a release APK signed with the debug keystore.
+// If release credentials are missing, fail release tasks early with a clear message.
+gradle.taskGraph.whenReady { graph ->
+    def requestedReleaseTask = graph.allTasks.any { it.name.toLowerCase().contains('release') }
+    if (requestedReleaseTask && !hasReleaseKeystore) {
+        throw new GradleException(
+                "Missing release keystore. Configure MYAPP_UPLOAD_* values in gradle.properties before building release."
+        )
+    }
+}
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -93,7 +108,7 @@ android {
             keyPassword 'android'
         }
         release {
-            if (project.hasProperty('MYAPP_UPLOAD_STORE_FILE')) {
+            if (hasReleaseKeystore) {
                 storeFile file(MYAPP_UPLOAD_STORE_FILE)
                 storePassword MYAPP_UPLOAD_STORE_PASSWORD
                 keyAlias MYAPP_UPLOAD_KEY_ALIAS
