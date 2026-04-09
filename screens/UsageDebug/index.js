@@ -113,9 +113,14 @@ export default function UsageDebug({ navigation }) {
           <Text style={styles.back}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Usage Debug</Text>
-        <TouchableOpacity onPress={refresh} disabled={loading}>
-          <Text style={[styles.refresh, loading && { opacity: 0.5 }]}>Refresh</Text>
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity onPress={() => navigation.navigate("Permission")} style={styles.permBtn}>
+            <Text style={styles.permBtnText}>Permissions</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={refresh} disabled={loading}>
+            <Text style={[styles.refresh, loading && { opacity: 0.5 }]}>Refresh</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -211,6 +216,9 @@ const styles = StyleSheet.create({
   back: { color: "#2563EB", fontWeight: "600" },
   title: { fontSize: 16, fontWeight: "700", color: "#111827" },
   refresh: { color: "#2563EB", fontWeight: "700" },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 10 },
+  permBtn: { backgroundColor: "#7C3AED", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
+  permBtnText: { color: "#FFF", fontWeight: "700", fontSize: 12 },
   content: { padding: 16, paddingBottom: 32, gap: 12 },
   card: {
     backgroundColor: "#FFF",

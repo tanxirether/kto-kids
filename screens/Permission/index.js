@@ -24,6 +24,8 @@ import { register as registerCameraCapture, unregister as unregisterCameraCaptur
 import { getPending as getPendingCameraCapture, clearPending as clearPendingCameraCapture } from '../../services/PendingCameraCaptureManager'
 import { uploadCameraPhoto } from '../../services/CameraPhotoService'
 import { debugStartForegroundService, debugStopForegroundService } from '../../services/ForegroundServiceManager'
+import { isAccessibilityEnabled, openAccessibilitySettings, hasUsageAccess, openUsageAccessSettings } from '../../services/AccessibilityServiceBridge'
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 
 const { ScreenLock } = NativeModules
 
@@ -36,6 +38,7 @@ const Permission = ({ navigation }) => {
   /* ================= STATE ================= */
 
   const [permissions, setPermissions] = useState({
+    accessibilityService: false,
     usageLimits: false,
     displayOverApps: false,
     remoteCamera: false,
@@ -158,8 +161,15 @@ const Permission = ({ navigation }) => {
         break
       }
 
-      case "usageLimits":
+      case "accessibilityService":
+        openAccessibilitySettings()
+        break
+
       case "usageReport":
+        openUsageAccessSettings()
+        break
+
+      case "usageLimits":
         Linking.openSettings()
         break
 
@@ -180,13 +190,19 @@ const Permission = ({ navigation }) => {
   /* ================= RECHECK PERMISSIONS ================= */
 
   const recheckPermissions = async () => {
-    const camera = await check(PERMISSIONS.ANDROID.CAMERA)
-    const audio = await check(PERMISSIONS.ANDROID.RECORD_AUDIO)
-    const location = await check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION)
+    const [camera, audio, location, accEnabled, usageAccess] = await Promise.all([
+      check(PERMISSIONS.ANDROID.CAMERA),
+      check(PERMISSIONS.ANDROID.RECORD_AUDIO),
+      check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION),
+      isAccessibilityEnabled().catch(() => false),
+      hasUsageAccess().catch(() => false),
+    ])
 
     updatePermission("remoteCamera", camera === RESULTS.GRANTED)
     updatePermission("oneWayAudio", audio === RESULTS.GRANTED)
     updatePermission("liveLocation", location === RESULTS.GRANTED)
+    updatePermission("accessibilityService", Boolean(accEnabled))
+    updatePermission("usageReport", Boolean(usageAccess))
   }
 
   /* ================= EFFECTS ================= */
@@ -308,10 +324,12 @@ const Permission = ({ navigation }) => {
 
   /* ================= UI ITEM ================= */
 
-  const PermissionItem = ({ title, subtitle, permissionKey, icon }) => (
+  const PermissionItem = ({ title, subtitle, permissionKey, iconName }) => (
     <View style={styles.permissionItem}>
       <View style={styles.permissionLeft}>
-        <Text style={styles.permissionIcon}>{icon}</Text>
+        <View style={styles.iconWrap}>
+          <MaterialCommunityIcons name={iconName} size={22} color="#7C3AED" />
+        </View>
         <View style={styles.permissionText}>
           <Text style={styles.permissionTitle}>{title}</Text>
           <Text style={styles.permissionSubtitle}>{subtitle}</Text>
@@ -372,14 +390,15 @@ const Permission = ({ navigation }) => {
 
         <ScrollView>
           <View style={styles.permissionsList}>
-            <PermissionItem title="Usage Limits" subtitle="Control screen & app time" permissionKey="usageLimits" icon="⏱️" />
-            <PermissionItem title="Display Over Apps" subtitle="Show alerts over apps" permissionKey="displayOverApps" icon="💬" />
-            <PermissionItem title="Remote Camera" subtitle="Allow photo capture" permissionKey="remoteCamera" icon="📷" />
-            <PermissionItem title="One-Way Audio" subtitle="Allow microphone access" permissionKey="oneWayAudio" icon="🔊" />
-            <PermissionItem title="Live Location" subtitle="Track device location" permissionKey="liveLocation" icon="📍" />
-            <PermissionItem title="Usage Report" subtitle="View app usage" permissionKey="usageReport" icon="📊" />
-            <PermissionItem title="Run in Background" subtitle="Keep monitoring active" permissionKey="keepBackground" icon="🔄" />
-            <PermissionItem title="Battery Optimization" subtitle="Prevent system kill" permissionKey="superBattery" icon="🔋" />
+            <PermissionItem title="Accessibility Service" subtitle="Enable KTO Kids monitoring service" permissionKey="accessibilityService" iconName="human" />
+            <PermissionItem title="Usage Limits" subtitle="Control screen & app time" permissionKey="usageLimits" iconName="timer-outline" />
+            <PermissionItem title="Display Over Apps" subtitle="Show alerts over apps" permissionKey="displayOverApps" iconName="layers-outline" />
+            <PermissionItem title="Remote Camera" subtitle="Allow photo capture" permissionKey="remoteCamera" iconName="camera-outline" />
+            <PermissionItem title="One-Way Audio" subtitle="Allow microphone access" permissionKey="oneWayAudio" iconName="microphone-outline" />
+            <PermissionItem title="Live Location" subtitle="Track device location" permissionKey="liveLocation" iconName="map-marker-outline" />
+            <PermissionItem title="Usage Report" subtitle="View app usage" permissionKey="usageReport" iconName="chart-bar" />
+            <PermissionItem title="Run in Background" subtitle="Keep monitoring active" permissionKey="keepBackground" iconName="refresh" />
+            <PermissionItem title="Battery Optimization" subtitle="Prevent system kill" permissionKey="superBattery" iconName="battery-charging" />
           </View>
         </ScrollView>
 
@@ -439,6 +458,11 @@ const styles = StyleSheet.create({
   },
   permissionLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
   permissionIcon: { fontSize: 24, marginRight: 12 },
+  iconWrap: {
+    width: 40, height: 40, borderRadius: 10,
+    backgroundColor: '#F5F3FF', alignItems: 'center',
+    justifyContent: 'center', marginRight: 12,
+  },
   permissionText: { flex: 1 },
   permissionTitle: { fontSize: 16, fontWeight: "600" },
   permissionSubtitle: { fontSize: 13, color: "#6B7280" },
