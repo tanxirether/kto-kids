@@ -390,6 +390,18 @@ const Permission = ({ navigation }) => {
 
         <ScrollView>
           <View style={styles.permissionsList}>
+            {__DEV__ ? (
+              <View style={styles.debugInlineContainer}>
+                <View style={styles.debugButtonsRow}>
+                  <TouchableOpacity style={styles.debugButtonPrimary} onPress={handleDebugStartService}>
+                    <Text style={styles.debugButtonText}>Test Service Notification</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.debugButtonSecondary} onPress={handleDebugStopService}>
+                    <Text style={styles.debugButtonText}>Stop Service</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : null}
             <PermissionItem title="Accessibility Service" subtitle="Enable KTO Kids monitoring service" permissionKey="accessibilityService" iconName="human" />
             <PermissionItem title="Usage Limits" subtitle="Control screen & app time" permissionKey="usageLimits" iconName="timer-outline" />
             <PermissionItem title="Display Over Apps" subtitle="Show alerts over apps" permissionKey="displayOverApps" iconName="layers-outline" />
@@ -404,16 +416,6 @@ const Permission = ({ navigation }) => {
 
         {/* Confirm */}
         <View style={styles.buttonContainer}>
-          {__DEV__ ? (
-            <View style={styles.debugButtonsRow}>
-              <TouchableOpacity style={styles.debugButtonPrimary} onPress={handleDebugStartService}>
-                <Text style={styles.debugButtonText}>Test Service Notification</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.debugButtonSecondary} onPress={handleDebugStopService}>
-                <Text style={styles.debugButtonText}>Stop Service</Text>
-              </TouchableOpacity>
-            </View>
-          ) : null}
           {__DEV__ ? (
             <TouchableOpacity style={styles.debugButtonNeutral} onPress={handleDebugLocalNotification}>
               <Text style={styles.debugButtonText}>Send Local Debug Notification</Text>
@@ -452,6 +454,9 @@ const styles = StyleSheet.create({
   headerSubtext: { fontSize: 14, color: "#6B7280" },
 
   permissionsList: { padding: 16, paddingBottom: 120 },
+  debugInlineContainer: {
+    marginBottom: 12,
+  },
   permissionItem: {
     flexDirection: "row", justifyContent: "space-between",
     backgroundColor: "#FFF", padding: 14, borderRadius: 12, marginBottom: 12
