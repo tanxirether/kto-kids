@@ -5,6 +5,7 @@ import instance from "../api/api_instance";
 const { DeviceAccessModule } = NativeModules;
 
 const LAST_SYNC_STORAGE_KEY = "last_activities_sync_ms";
+const LAST_LOCATION_SYNC_STORAGE_KEY = "last_location_sync_ms";
 
 /** Call after any successful /activities or snapshot upload so UI can show "Last activities sync". */
 export async function recordActivitiesSyncSuccess() {
@@ -25,6 +26,31 @@ export async function recordActivitiesSyncSuccess() {
 export async function getLastActivitiesSyncMsFromStorage() {
   try {
     const raw = await AsyncStorage.getItem(LAST_SYNC_STORAGE_KEY);
+    const n = raw ? parseInt(raw, 10) : 0;
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function recordLocationSyncSuccess() {
+  const now = Date.now();
+  try {
+    await AsyncStorage.setItem(LAST_LOCATION_SYNC_STORAGE_KEY, String(now));
+  } catch {
+    // best effort
+  }
+  if (Platform.OS !== "android" || !DeviceAccessModule?.setLastLocationSyncMs) return;
+  try {
+    await DeviceAccessModule.setLastLocationSyncMs(now);
+  } catch {
+    // best effort
+  }
+}
+
+export async function getLastLocationSyncMsFromStorage() {
+  try {
+    const raw = await AsyncStorage.getItem(LAST_LOCATION_SYNC_STORAGE_KEY);
     const n = raw ? parseInt(raw, 10) : 0;
     return Number.isFinite(n) && n > 0 ? n : 0;
   } catch {

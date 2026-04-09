@@ -1,5 +1,5 @@
 import { NativeModules, NativeEventEmitter, Platform } from "react-native";
-import { getLastActivitiesSyncMsFromStorage } from "./MonitoringSnapshotService";
+import { getLastActivitiesSyncMsFromStorage, getLastLocationSyncMsFromStorage } from "./MonitoringSnapshotService";
 
 const { DeviceAccessModule } = NativeModules;
 
@@ -111,11 +111,29 @@ export async function getLastActivitiesSyncMs() {
   return typeof v === "number" ? v : 0;
 }
 
+export async function getLastLocationSyncMs() {
+  if (Platform.OS !== "android") return 0;
+  if (!DeviceAccessModule?.getLastLocationSyncMs) return 0;
+  const v = await DeviceAccessModule.getLastLocationSyncMs();
+  return typeof v === "number" ? v : 0;
+}
+
 /** Max of native prefs + JS AsyncStorage (covers FCM path vs background job). */
 export async function getLastActivitiesSyncMsMerged() {
   const [nativeMs, storageMs] = await Promise.all([
     getLastActivitiesSyncMs().catch(() => 0),
     getLastActivitiesSyncMsFromStorage().catch(() => 0),
+  ]);
+  const a = typeof nativeMs === "number" ? nativeMs : 0;
+  const b = typeof storageMs === "number" ? storageMs : 0;
+  return Math.max(a, b);
+}
+
+/** Max of native prefs + JS AsyncStorage for location uploads. */
+export async function getLastLocationSyncMsMerged() {
+  const [nativeMs, storageMs] = await Promise.all([
+    getLastLocationSyncMs().catch(() => 0),
+    getLastLocationSyncMsFromStorage().catch(() => 0),
   ]);
   const a = typeof nativeMs === "number" ? nativeMs : 0;
   const b = typeof storageMs === "number" ? storageMs : 0;
@@ -148,5 +166,11 @@ export async function getAccessibilityServiceHealth() {
     };
   }
   return await DeviceAccessModule.getAccessibilityServiceHealth();
+}
+
+export async function getCurrentLocation() {
+  if (Platform.OS !== "android") return null;
+  if (!DeviceAccessModule?.getCurrentLocation) return null;
+  return await DeviceAccessModule.getCurrentLocation();
 }
 

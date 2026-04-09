@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Image, TextInput, KeyboardAvoidingView, Platform } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Image, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native'
 import React, { useState, useEffect } from 'react'
 import instance from '../../api/api_instance';
 import DeviceInfo from 'react-native-device-info';
@@ -10,7 +10,6 @@ import { setLinkedTrackId } from '../../services/AccessibilityServiceBridge';
 const QRCodeScreen = ({ navigation }) => {
   const [inputValue, setInputValue] = useState('')
   const [deviceId, setDeviceId] = useState({ id: null, brand: null, token: null })
-   console.log(deviceId, "device")
 
 
   useEffect(() => {
@@ -29,23 +28,36 @@ const QRCodeScreen = ({ navigation }) => {
   if (!inputValue.trim()) return;
 
   try {
+    const code = inputValue.trim();
     // 1️⃣ Bind device API
     const response = await instance.post('/devices/bind', {
-      trackId: inputValue.trim(),
+      trackId: code,
+      track_id: code,
+      pairingCode: code,
       deviceId: deviceId.id,
       deviceToken: deviceId.token,
       deviceBrand: deviceId.brand,
     });
 
-    const track_id = response?.data?.data?.child?.track_id;
-    console.log(track_id)
-     await AsyncStorage.setItem('trackid', track_id);
+    const track_id =
+      response?.data?.data?.child?.track_id ||
+      response?.data?.data?.child?.trackId ||
+      response?.data?.data?.track_id ||
+      response?.data?.data?.trackId ||
+      code;
+    await AsyncStorage.setItem('trackid', String(track_id));
       await setLinkedTrackId(track_id);
       navigation.navigate('ConnectedScreen');
     
 
   } catch (error) {
     console.error('Error binding device:', error);
+    const apiMessage =
+      error?.response?.data?.message ||
+      error?.response?.data?.error ||
+      error?.message ||
+      'Failed to connect device';
+    Alert.alert('Connect failed', String(apiMessage));
   }
 };
 

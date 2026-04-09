@@ -154,10 +154,22 @@ const Permission = ({ navigation }) => {
       }
 
       case "liveLocation": {
-        const res = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-        )
-        updatePermission(key, res === PermissionsAndroid.RESULTS.GRANTED)
+        let granted = false
+        try {
+          const res = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+          )
+          granted = res === PermissionsAndroid.RESULTS.GRANTED
+          if (granted && Platform.OS === 'android' && Platform.Version >= 29) {
+            const bg = await PermissionsAndroid.request(
+              PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION
+            )
+            granted = bg === PermissionsAndroid.RESULTS.GRANTED
+          }
+        } catch (e) {
+          console.warn('Location permission request failed', e)
+        }
+        updatePermission(key, granted)
         break
       }
 
@@ -190,17 +202,23 @@ const Permission = ({ navigation }) => {
   /* ================= RECHECK PERMISSIONS ================= */
 
   const recheckPermissions = async () => {
-    const [camera, audio, location, accEnabled, usageAccess] = await Promise.all([
+    const [camera, audio, fineLocation, bgLocation, accEnabled, usageAccess] = await Promise.all([
       check(PERMISSIONS.ANDROID.CAMERA),
       check(PERMISSIONS.ANDROID.RECORD_AUDIO),
       check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION),
+      Platform.OS === 'android' && Platform.Version >= 29
+        ? check(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION).catch(() => RESULTS.DENIED)
+        : Promise.resolve(RESULTS.GRANTED),
       isAccessibilityEnabled().catch(() => false),
       hasUsageAccess().catch(() => false),
     ])
 
     updatePermission("remoteCamera", camera === RESULTS.GRANTED)
     updatePermission("oneWayAudio", audio === RESULTS.GRANTED)
-    updatePermission("liveLocation", location === RESULTS.GRANTED)
+    updatePermission(
+      "liveLocation",
+      fineLocation === RESULTS.GRANTED && bgLocation === RESULTS.GRANTED
+    )
     updatePermission("accessibilityService", Boolean(accEnabled))
     updatePermission("usageReport", Boolean(usageAccess))
   }

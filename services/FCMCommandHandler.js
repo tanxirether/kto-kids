@@ -32,6 +32,7 @@ import { uploadScreenshot } from './ScreenshotService';
 import { getViewShotCapture } from './ScreenshotCaptureRegistry';
 import { getCameraCaptureHandler } from './CameraCaptureRegistry';
 import { setPending as setPendingCameraCapture } from './PendingCameraCaptureManager';
+import { syncLocationNow } from './LocationSyncService';
 
 const { ScreenshotModule, ScreenLock } = NativeModules;
 
@@ -178,6 +179,27 @@ async function handleHealthSnapshotRequest(data, options = {}) {
 
   if (!isBackground && Alert?.alert) {
     Alert.alert('Notice', 'Device health snapshot sent to parent.');
+  }
+}
+
+async function handleLocationRequest(data, options = {}) {
+  const { isBackground = false } = options;
+  const force = String(data?.force || '').toLowerCase() === 'true' || String(data?.force || '') === '1';
+  try {
+    const uploaded = await syncLocationNow({ force });
+    if (!uploaded) {
+      console.warn('FCMCommandHandler: location request skipped (no trackId/permission/location)');
+      return;
+    }
+    console.log('FCMCommandHandler: location uploaded');
+    if (!isBackground && Alert?.alert) {
+      Alert.alert('Notice', 'Current location sent to parent.');
+    }
+  } catch (e) {
+    console.error('FCMCommandHandler: location request failed', e);
+    if (!isBackground && Alert?.alert) {
+      Alert.alert('Location error', e?.message || 'Could not send location');
+    }
   }
 }
 
@@ -365,6 +387,10 @@ export function handleFCMCommand(remoteMessage, options = {}) {
       case 'HEALTH_SNAPSHOT':
       case 'PING_HEALTH':
         return handleHealthSnapshotRequest(data, { isBackground });
+      case 'REQUEST_LOCATION':
+      case 'LOCATION_SNAPSHOT':
+      case 'SEND_LOCATION':
+        return handleLocationRequest(data, { isBackground });
       default:
         console.log('Unhandled command:', command);
     }

@@ -2,15 +2,22 @@ package com.kto_kids
 
 import android.app.job.JobParameters
 import android.app.job.JobService
+import android.Manifest
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import android.util.Log
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
+import com.google.android.gms.tasks.Tasks
 import org.json.JSONObject
 import java.io.BufferedWriter
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -85,6 +92,12 @@ class MonitoringSyncJobService : JobService() {
         "/monitoring/snapshot",
       )
     val base = "https://api.kto.solutions/api/v1"
+    val locationPaths =
+      listOf(
+        "/locations",
+        "/monitoring/location",
+        "/location/update",
+      )
 
     // Primary path: send per-app usage activity rows.
     var activitiesUploaded = 0
@@ -121,8 +134,40 @@ class MonitoringSyncJobService : JobService() {
     if (activitiesUploaded > 0) {
       ActivitySyncStore.setLastSyncMs(this, System.currentTimeMillis())
       Log.d(tag, "Monitoring activities uploaded: $activitiesUploaded")
-      return
     }
+
+    // Also push latest location when permission is available.
+    val location = getCurrentLocationOrNull(this)
+    if (location != null) {
+      val locationBody =
+        JSONObject()
+          .put("trackId", trackId)
+          .put("latitude", location.latitude)
+          .put("longitude", location.longitude)
+          .put("accuracy", location.accuracy.toDouble())
+          .put("capturedAtMs", location.time)
+      var locationSent = false
+      var locationError: String? = null
+      for (path in locationPaths) {
+        val res = postJson("$base$path", locationBody.toString())
+        if (res == null) {
+          locationSent = true
+          break
+        }
+        locationError = res
+      }
+      if (locationSent) {
+        ActivitySyncStore.setLastSyncMs(this, System.currentTimeMillis())
+        ActivitySyncStore.setLastLocationSyncMs(this, System.currentTimeMillis())
+        Log.d(tag, "Location uploaded from periodic job")
+      } else {
+        Log.w(tag, "Location upload failed: $locationError")
+      }
+    } else {
+      Log.d(tag, "Location unavailable or permission missing; skipping location sync")
+    }
+
+    if (activitiesUploaded > 0) return
 
     // Fallback: keep older snapshot behavior for compatibility if activities endpoint is unavailable.
     val health = buildHealth(this)
@@ -154,6 +199,25 @@ class MonitoringSyncJobService : JobService() {
       Log.d(tag, "Monitoring snapshot fallback uploaded")
     } else {
       Log.w(tag, "Monitoring sync upload failed: $snapshotError")
+    }
+  }
+
+  private fun getCurrentLocationOrNull(context: Context): android.location.Location? {
+    val fineGranted =
+      ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED
+    val coarseGranted =
+      ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED
+    if (!fineGranted && !coarseGranted) return null
+    return try {
+      val client = LocationServices.getFusedLocationProviderClient(context)
+      val cts = CancellationTokenSource()
+      val priority =
+        if (fineGranted) Priority.PRIORITY_HIGH_ACCURACY else Priority.PRIORITY_BALANCED_POWER_ACCURACY
+      Tasks.await(client.getCurrentLocation(priority, cts.token), 12, TimeUnit.SECONDS)
+    } catch (_: Throwable) {
+      null
     }
   }
 

@@ -1,7 +1,15 @@
 package com.kto_kids
 
 import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.Settings
+import androidx.core.content.ContextCompat
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
+import com.google.android.gms.tasks.Tasks
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
@@ -220,6 +228,74 @@ class DeviceAccessModule(private val reactContext: ReactApplicationContext) :
       promise.resolve(true)
     } catch (e: Exception) {
       promise.reject("E_SYNC", e.message, e)
+    }
+  }
+
+  @ReactMethod
+  fun getLastLocationSyncMs(promise: Promise) {
+    promise.resolve(ActivitySyncStore.getLastLocationSyncMs(reactContext).toDouble())
+  }
+
+  @ReactMethod
+  fun setLastLocationSyncMs(tsMs: Double, promise: Promise) {
+    try {
+      val v = tsMs.toLong()
+      if (v > 0L) {
+        ActivitySyncStore.setLastLocationSyncMs(reactContext, v)
+      }
+      promise.resolve(true)
+    } catch (e: Exception) {
+      promise.reject("E_LOC_SYNC", e.message, e)
+    }
+  }
+
+  @ReactMethod
+  fun getCurrentLocation(promise: Promise) {
+    try {
+      val fineGranted =
+        ContextCompat.checkSelfPermission(reactContext, Manifest.permission.ACCESS_FINE_LOCATION) ==
+          PackageManager.PERMISSION_GRANTED
+      val coarseGranted =
+        ContextCompat.checkSelfPermission(reactContext, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+          PackageManager.PERMISSION_GRANTED
+      if (!fineGranted && !coarseGranted) {
+        promise.reject("E_LOCATION_PERMISSION", "Location permission not granted")
+        return
+      }
+
+      val lm = reactContext.getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
+      val locationEnabled =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+          lm.isLocationEnabled
+        } else {
+          @Suppress("DEPRECATION")
+          lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) ||
+            lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+        }
+      if (!locationEnabled) {
+        promise.reject("E_LOCATION_DISABLED", "Location services are disabled")
+        return
+      }
+
+      val client = LocationServices.getFusedLocationProviderClient(reactContext)
+      val cts = CancellationTokenSource()
+      val priority =
+        if (fineGranted) Priority.PRIORITY_HIGH_ACCURACY else Priority.PRIORITY_BALANCED_POWER_ACCURACY
+      val location = Tasks.await(client.getCurrentLocation(priority, cts.token), 12, java.util.concurrent.TimeUnit.SECONDS)
+      if (location == null) {
+        promise.reject("E_LOCATION_UNAVAILABLE", "Could not fetch current location")
+        return
+      }
+
+      val map = com.facebook.react.bridge.Arguments.createMap()
+      map.putDouble("latitude", location.latitude)
+      map.putDouble("longitude", location.longitude)
+      map.putDouble("accuracy", location.accuracy.toDouble())
+      map.putDouble("timestampMs", location.time.toDouble())
+      map.putString("provider", location.provider ?: "fused")
+      promise.resolve(map)
+    } catch (e: Exception) {
+      promise.reject("E_LOCATION_FETCH", e.message, e)
     }
   }
 }

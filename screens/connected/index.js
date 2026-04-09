@@ -11,7 +11,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native'
-import { getLastActivitiesSyncMsMerged, setLinkedTrackId } from '../../services/AccessibilityServiceBridge'
+import {
+    getLastActivitiesSyncMsMerged,
+    getLastLocationSyncMsMerged,
+    setLinkedTrackId,
+} from '../../services/AccessibilityServiceBridge'
 const { width } = Dimensions.get('window')
 
 function formatLastSync(tsMs) {
@@ -26,6 +30,7 @@ function formatLastSync(tsMs) {
 const ConnectedScreen = ({ navigation }) => {
     const [connectedDevice, setConnectedDevice] = useState(null);
     const [lastActivitiesSync, setLastActivitiesSync] = useState(null)
+    const [lastLocationSync, setLastLocationSync] = useState(null)
 
     useFocusEffect(
         useCallback(() => {
@@ -47,6 +52,14 @@ const ConnectedScreen = ({ navigation }) => {
                     }
                 } catch {
                     if (!cancelled) setLastActivitiesSync(0)
+                }
+                try {
+                    const ts = await getLastLocationSyncMsMerged()
+                    if (!cancelled) {
+                        setLastLocationSync(typeof ts === 'number' ? ts : 0)
+                    }
+                } catch {
+                    if (!cancelled) setLastLocationSync(0)
                 }
             })()
             return () => {
@@ -94,6 +107,13 @@ const ConnectedScreen = ({ navigation }) => {
                         <Text style={styles.infoLabel}>Last activities sync</Text>
                         <Text style={[styles.infoValue, styles.syncValue]} numberOfLines={2}>
                             {formatLastSync(lastActivitiesSync)}
+                        </Text>
+                    </View>
+                    <View style={styles.divider} />
+                    <View style={styles.infoRow}>
+                        <Text style={styles.infoLabel}>Last location sync</Text>
+                        <Text style={[styles.infoValue, styles.syncValue]} numberOfLines={2}>
+                            {formatLastSync(lastLocationSync)}
                         </Text>
                     </View>
                 </View>
