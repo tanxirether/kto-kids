@@ -22,6 +22,7 @@ import { getTodayUsageMs } from "./services/AccessibilityServiceBridge";
 import { restoreMonitoringRules, subscribeMonitoringEvents } from "./services/MonitoringRulesSync";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { setLinkedTrackId } from "./services/AccessibilityServiceBridge";
+import { startPolicySync } from "./services/PolicySync";
 
 const Stack = createNativeStackNavigator();
 
@@ -67,6 +68,12 @@ export default function App() {
       },
     });
     return () => cleanup?.();
+  }, []);
+
+  useEffect(() => {
+    // Poll policy so Postman updates take effect without FCM.
+    const stop = startPolicySync({ intervalMs: 20000 });
+    return () => stop?.();
   }, []);
 
   useEffect(() => {
