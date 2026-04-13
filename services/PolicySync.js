@@ -2,6 +2,47 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import instance from "../api/api_instance";
 import { applyMonitoringRules } from "./MonitoringRulesSync";
 
+function normalizeStringArray(value) {
+  if (value == null) return [];
+  if (Array.isArray(value)) {
+    return value.filter((v) => v != null && String(v).trim() !== "").map((v) => String(v).trim());
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return normalizeStringArray(parsed);
+    } catch {
+      // single string token
+    }
+    return [value.trim()];
+  }
+  return [];
+}
+
+function firstStringList(data, keys) {
+  for (let i = 0; i < keys.length; i += 1) {
+    const k = keys[i];
+    const v = data[k];
+    const n = normalizeStringArray(v);
+    if (n.length > 0) return n;
+  }
+  return [];
+}
+
+function mergeDistinctKeywords(blockedKeywords, blockedWebsites) {
+  const seen = new Set();
+  const out = [];
+  for (const s of [...blockedKeywords, ...blockedWebsites]) {
+    const t = String(s).trim();
+    if (!t) continue;
+    const low = t.toLowerCase();
+    if (seen.has(low)) continue;
+    seen.add(low);
+    out.push(t);
+  }
+  return out;
+}
+
 function normalizePolicyResponse(payload) {
   // Accept common shapes:
   // - { data: { blocked_apps: [...] } }
@@ -17,6 +58,23 @@ function normalizePolicyResponse(payload) {
     data.blockedPackages ??
     data.blocked_packages ??
     [];
+
+  const blockedWebsites = mergeDistinctKeywords(
+    firstStringList(data, ["blockedWebsites", "blocked_websites"]),
+    firstStringList(data, ["blockedUrls", "blocked_urls"]),
+  );
+
+  const blockedKeywords = firstStringList(data, ["blockedKeywords", "blocked_keywords", "keywords"]);
+
+  const keywords = mergeDistinctKeywords(blockedKeywords, blockedWebsites);
+
+  const familyIdRaw =
+    data.familyId ??
+    data.family_id ??
+    root.familyId ??
+    root.family_id ??
+    "";
+  const familyId = String(familyIdRaw || "").trim();
 
   const appLimits = Array.isArray(data.app_limits)
     ? data.app_limits
@@ -39,6 +97,10 @@ function normalizePolicyResponse(payload) {
 
   return {
     blockedApps: Array.isArray(blockedApps) ? blockedApps.filter(Boolean).map(String) : [],
+    blockedWebsites,
+    blockedKeywords,
+    keywords,
+    familyId,
     limitsMsByPackage,
     isCameraBlocked:
       data.isCameraBlocked === true ||
@@ -89,6 +151,7 @@ export function startPolicySync({ intervalMs = 20000 } = {}) {
   let lastBlockedApps = null;
   let lastLimitsDigest = "";
   let lastCameraBlocked = null;
+  let lastKeywordsDigest = "";
 
   async function tick() {
     if (stopped) return;
@@ -99,27 +162,41 @@ export function startPolicySync({ intervalMs = 20000 } = {}) {
       const raw = await fetchPolicy(trackId);
       const policy = normalizePolicyResponse(raw);
 
+      if (policy.familyId) {
+        try {
+          await AsyncStorage.setItem("familyId", policy.familyId);
+        } catch {
+          // ignore
+        }
+      }
+
       const blockedApps = policy.blockedApps;
       const limits = policy.limitsMsByPackage || {};
       const limitsDigest = JSON.stringify(limits);
       const cameraBlocked = policy.isCameraBlocked;
+      const keywords = Array.isArray(policy.keywords) ? policy.keywords : [];
+      const keywordsDigest = JSON.stringify(keywords);
       const blockedUnchanged = shallowEqualArray(blockedApps, lastBlockedApps);
       const limitsUnchanged = limitsDigest === lastLimitsDigest;
       const cameraUnchanged = cameraBlocked === lastCameraBlocked;
-      if (blockedUnchanged && limitsUnchanged && cameraUnchanged) return;
+      const keywordsUnchanged = keywordsDigest === lastKeywordsDigest;
+      if (blockedUnchanged && limitsUnchanged && cameraUnchanged && keywordsUnchanged) return;
 
       lastBlockedApps = blockedApps;
       lastLimitsDigest = limitsDigest;
       lastCameraBlocked = cameraBlocked;
+      lastKeywordsDigest = keywordsDigest;
       await applyMonitoringRules({
         blockedPackages: blockedApps,
         limitsMsByPackage: limits,
+        keywords,
       });
       // eslint-disable-next-line no-console
       console.log("PolicySync: rules applied", {
         blockedAppsCount: blockedApps.length,
         appLimitsCount: Object.keys(limits).length,
         isCameraBlocked: cameraBlocked,
+        keywordsCount: keywords.length,
       });
     } catch (e) {
       // eslint-disable-next-line no-console

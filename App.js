@@ -24,6 +24,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { setLinkedTrackId } from "./services/AccessibilityServiceBridge";
 import { startPolicySync } from "./services/PolicySync";
 import { startLocationSync } from "./services/LocationSyncService";
+import { sendFamilyActivityAlert } from "./services/FamilyAlertNotification";
+import { recordKeywordActivityContext } from "./services/MonitoringSnapshotService";
 
 const Stack = createNativeStackNavigator();
 
@@ -63,9 +65,10 @@ export default function App() {
         console.log("AccessibilityEventDetected", data);
       },
       onKeywordDetected: (data) => {
-        // You can forward keyword alerts to backend or trigger local notice here
         // eslint-disable-next-line no-console
         console.log("KeywordDetected", data);
+        recordKeywordActivityContext(data);
+        sendFamilyActivityAlert();
       },
     });
     return () => cleanup?.();

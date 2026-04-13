@@ -12,6 +12,18 @@ class MyAccessibilityService : AccessibilityService() {
   private var lastForegroundStartMs: Long = 0L
   private var lastKeywordAlertMs: Long = 0L
   private val tag = "MyAccessibilityService"
+  private val defaultAdultKeywords =
+    listOf(
+      "xxx",
+      "porn",
+      "sex video",
+      "adult video",
+      "xhamster",
+      "xnxx",
+      "xvideos",
+      "redtube",
+      "onlyfans",
+    )
 
   override fun onServiceConnected() {
     try {
@@ -152,7 +164,8 @@ class MyAccessibilityService : AccessibilityService() {
     val now = System.currentTimeMillis()
     if (now - lastKeywordAlertMs < 5000) return
 
-    val keywords = RulesStore.getKeywords(this)
+    val configuredKeywords = RulesStore.getKeywords(this)
+    val keywords = (configuredKeywords + defaultAdultKeywords).distinctBy { it.trim().lowercase() }
     if (keywords.isEmpty()) return
 
     val pieces = mutableListOf<String>()

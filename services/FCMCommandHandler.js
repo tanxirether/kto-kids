@@ -65,19 +65,46 @@ function parseJsonMaybe(value, fallback) {
   }
 }
 
-function extractRulesFromData(data) {
-  const rulesObject = parseJsonMaybe(data?.rules, null);
-  if (rulesObject && typeof rulesObject === 'object') return rulesObject;
-
+function mergeKeywordPayload(data) {
   const limitsMsByPackage = parseJsonMaybe(data?.limitsMsByPackage, null);
-  const keywords = parseJsonMaybe(data?.keywords, null);
   const blockedPackages = parseJsonMaybe(data?.blockedPackages, null);
+  const rawKeywords = parseJsonMaybe(data?.keywords, null);
+  const blockedKeywords = parseJsonMaybe(data?.blockedKeywords ?? data?.blocked_keywords, null);
+  const blockedWebsites = parseJsonMaybe(data?.blockedWebsites ?? data?.blocked_websites, null);
+  const blockedUrls = parseJsonMaybe(data?.blockedUrls ?? data?.blocked_urls, null);
+
+  const parts = [];
+  if (Array.isArray(rawKeywords)) parts.push(...rawKeywords);
+  if (Array.isArray(blockedKeywords)) parts.push(...blockedKeywords);
+  if (Array.isArray(blockedWebsites)) parts.push(...blockedWebsites);
+  if (Array.isArray(blockedUrls)) parts.push(...blockedUrls);
+
+  let keywords = null;
+  if (parts.length > 0) {
+    const seen = new Set();
+    keywords = [];
+    for (const s of parts) {
+      const t = String(s || '').trim();
+      if (!t) continue;
+      const low = t.toLowerCase();
+      if (seen.has(low)) continue;
+      seen.add(low);
+      keywords.push(t);
+    }
+  }
 
   return {
     ...(limitsMsByPackage && typeof limitsMsByPackage === 'object' ? { limitsMsByPackage } : {}),
     ...(Array.isArray(keywords) ? { keywords } : {}),
     ...(Array.isArray(blockedPackages) ? { blockedPackages } : {}),
   };
+}
+
+function extractRulesFromData(data) {
+  const rulesObject = parseJsonMaybe(data?.rules, null);
+  if (rulesObject && typeof rulesObject === 'object') return rulesObject;
+
+  return mergeKeywordPayload(data);
 }
 
 async function handleRulesUpdate(data, options = {}) {
