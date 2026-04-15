@@ -1,6 +1,6 @@
 {
   "name": "kto_kids",
-  "version": "0.0.1",
+  "version": "0.1.0-mehedi",
   "private": true,
   "scripts": {
     "android": "react-native run-android",
@@ -16,10 +16,13 @@
     "@react-native-firebase/app": "^23.8.4",
     "@react-native-firebase/messaging": "^23.8.4",
     "@react-native/new-app-screen": "0.83.1",
+    "@react-navigation/elements": "^2.9.14",
     "@react-navigation/native": "^7.1.28",
     "@react-navigation/native-stack": "^7.10.1",
     "@supersami/rn-foreground-service": "^2.2.5",
     "axios": "^1.13.2",
+    "hermes-estree": "^0.32.0",
+    "hermes-parser": "^0.32.0",
     "react": "19.2.0",
     "react-native": "0.83.1",
     "react-native-device-info": "^15.0.1",
