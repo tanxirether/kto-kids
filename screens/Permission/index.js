@@ -27,7 +27,7 @@ import { debugStartForegroundService, debugStopForegroundService } from '../../s
 import { isAccessibilityEnabled, openAccessibilitySettings, hasUsageAccess, openUsageAccessSettings } from '../../services/AccessibilityServiceBridge'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 
-const { ScreenLock } = NativeModules
+const { ScreenLock, ScreenCaptureModule } = NativeModules
 
 const Permission = ({ navigation }) => {
 
@@ -47,6 +47,8 @@ const Permission = ({ navigation }) => {
     usageReport: false,
     keepBackground: false,
     superBattery: false,
+    /** Android: MediaProjection screen-capture consent for parent screen view / casting */
+    screenCasting: Platform.OS !== 'android',
   })
   const [cameraError, setCameraError] = useState(false)
   const [cameraReady, setCameraReady] = useState(false)
@@ -194,6 +196,17 @@ const Permission = ({ navigation }) => {
         Linking.openSettings()
         break
 
+      case "screenCasting": {
+        if (Platform.OS !== 'android' || !ScreenCaptureModule?.requestScreenCaptureConsent) break
+        try {
+          const granted = await ScreenCaptureModule.requestScreenCaptureConsent()
+          updatePermission(key, Boolean(granted))
+        } catch (e) {
+          console.warn('Screen capture consent failed', e)
+        }
+        break
+      }
+
       default:
         break
     }
@@ -221,6 +234,17 @@ const Permission = ({ navigation }) => {
     )
     updatePermission("accessibilityService", Boolean(accEnabled))
     updatePermission("usageReport", Boolean(usageAccess))
+
+    if (Platform.OS === 'android' && ScreenCaptureModule?.hasScreenCaptureConsent) {
+      try {
+        const casting = await ScreenCaptureModule.hasScreenCaptureConsent()
+        updatePermission("screenCasting", Boolean(casting))
+      } catch (e) {
+        console.warn('hasScreenCaptureConsent failed', e)
+      }
+    } else if (Platform.OS !== 'android') {
+      updatePermission("screenCasting", true)
+    }
   }
 
   /* ================= EFFECTS ================= */
@@ -423,6 +447,14 @@ const Permission = ({ navigation }) => {
             <PermissionItem title="Accessibility Service" subtitle="Enable KTO Kids monitoring service" permissionKey="accessibilityService" iconName="human" />
             <PermissionItem title="Usage Limits" subtitle="Control screen & app time" permissionKey="usageLimits" iconName="timer-outline" />
             <PermissionItem title="Display Over Apps" subtitle="Show alerts over apps" permissionKey="displayOverApps" iconName="layers-outline" />
+            {Platform.OS === 'android' ? (
+              <PermissionItem
+                title="Screen casting"
+                subtitle="Allow screen capture so a parent can view the device screen"
+                permissionKey="screenCasting"
+                iconName="cast"
+              />
+            ) : null}
             <PermissionItem title="Remote Camera" subtitle="Allow photo capture" permissionKey="remoteCamera" iconName="camera-outline" />
             <PermissionItem title="One-Way Audio" subtitle="Allow microphone access" permissionKey="oneWayAudio" iconName="microphone-outline" />
             <PermissionItem title="Live Location" subtitle="Track device location" permissionKey="liveLocation" iconName="map-marker-outline" />
