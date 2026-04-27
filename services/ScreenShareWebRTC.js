@@ -16,9 +16,18 @@ let onConnectedHandler = null;
 let onEndedHandler = null;
 const emittedIceFingerprintSet = new Set();
 const receivedIceFingerprintSet = new Set();
+const pendingRemoteCandidates = [];
+let stats = {
+  iceSent: 0,
+  iceReceived: 0,
+};
 
 function emitState(state, extra = {}) {
   onStateChangeHandler?.(state, extra);
+}
+
+function logStep(message, payload = {}) {
+  console.log('ScreenShareWebRTC:', message, payload);
 }
 
 function clearOfferTimeout() {
@@ -54,7 +63,22 @@ async function postSignal({
   };
   if (sdp) payload.sdp = sdp;
   if (candidate) payload.candidate = candidate;
-  return instance.post('/screen-share/webrtc/signal', payload);
+  logStep('POST /screen-share/webrtc/signal request', payload);
+  try {
+    const response = await instance.post('/screen-share/webrtc/signal', payload);
+    logStep('POST /screen-share/webrtc/signal response', {
+      status: response?.status,
+      data: response?.data,
+    });
+    return response;
+  } catch (e) {
+    logStep('POST /screen-share/webrtc/signal error', {
+      status: e?.response?.status,
+      data: e?.response?.data,
+      message: e?.message || String(e || ''),
+    });
+    throw e;
+  }
 }
 
 async function getLocalScreenStream() {
@@ -93,19 +117,23 @@ function wirePeerEvents() {
     if (!fp || emittedIceFingerprintSet.has(fp)) return;
     emittedIceFingerprintSet.add(fp);
     try {
+      stats.iceSent += 1;
+      const candidatePayload = candidate.toJSON ? candidate.toJSON() : candidate;
       await postSignal({
         trackId,
         sessionId,
         signalType: 'ice-candidate',
-        candidate: candidate.toJSON ? candidate.toJSON() : candidate,
+        candidate: candidatePayload,
         target: 'parent',
       });
+      logStep('ice sent', { count: stats.iceSent });
     } catch (e) {
       onErrorHandler?.(new Error(`Failed to post ICE candidate: ${e?.message || e}`));
     }
   };
   peerConnection.onconnectionstatechange = () => {
     const state = String(peerConnection?.connectionState || '');
+    logStep('peer connection state changed', { state });
     if (state === 'connecting') emitState('connecting');
     if (state === 'connected') {
       emitState('connected');
@@ -141,6 +169,35 @@ async function cleanupTransport() {
   activeSession = null;
   emittedIceFingerprintSet.clear();
   receivedIceFingerprintSet.clear();
+  pendingRemoteCandidates.length = 0;
+  stats = { iceSent: 0, iceReceived: 0 };
+  logStep('cleanup complete');
+}
+
+async function applyRemoteCandidate(candidateObject) {
+  if (!peerConnection || !candidateObject) return;
+  const fp = candidateFingerprint(candidateObject);
+  if (!fp || receivedIceFingerprintSet.has(fp)) return;
+  receivedIceFingerprintSet.add(fp);
+  try {
+    await peerConnection.addIceCandidate(new RTCIceCandidate(candidateObject));
+    stats.iceReceived += 1;
+    logStep('ice received', { count: stats.iceReceived });
+  } catch (e) {
+    // Early or malformed ICE should not crash the session.
+    logStep('addIceCandidate skipped', {
+      message: e?.message || String(e || ''),
+      candidate: candidateObject,
+    });
+  }
+}
+
+async function flushPendingRemoteCandidates() {
+  if (!peerConnection?.remoteDescription) return;
+  while (pendingRemoteCandidates.length > 0) {
+    const next = pendingRemoteCandidates.shift();
+    await applyRemoteCandidate(next);
+  }
 }
 
 export function setScreenStreamProvider(providerFn) {
@@ -178,9 +235,14 @@ export async function startWebRTCScreenShareSession({
     mediaType: String(mediaType || 'screen'),
     startedAt: Date.now(),
   };
+  logStep('session started', activeSession);
 
   emitState('preparing_media');
   localStream = await createLocalStream(activeSession.mediaType);
+  logStep('local stream prepared', {
+    mediaType: activeSession.mediaType,
+    trackCount: localStream?.getTracks?.()?.length || 0,
+  });
 
   peerConnection = new RTCPeerConnection({ iceServers });
   localStream.getTracks().forEach((track) => {
@@ -189,6 +251,10 @@ export async function startWebRTCScreenShareSession({
   wirePeerEvents();
 
   emitState('waiting_offer');
+  logStep('waiting for parent offer', {
+    trackId: activeSession.trackId,
+    sessionId: activeSession.sessionId,
+  });
   offerTimeout = setTimeout(() => {
     onErrorHandler?.(new Error('Timed out waiting for parent offer'));
     onEndedHandler?.('offer-timeout');
@@ -207,10 +273,18 @@ function sessionMatches(trackId, sessionId) {
 export async function processWebRTCSignal({ trackId, sessionId, signalType, sdp, candidate } = {}) {
   if (!peerConnection || !sessionMatches(trackId, sessionId)) return false;
   const normalizedType = String(signalType || '').toLowerCase();
+  logStep('signal received', {
+    trackId,
+    sessionId,
+    signalType: normalizedType,
+    hasSdp: Boolean(sdp),
+    hasCandidate: Boolean(candidate),
+  });
 
   if (normalizedType === 'offer' && sdp) {
     clearOfferTimeout();
     emitState('answering');
+    logStep('offer received', { trackId, sessionId });
     const offerSdp =
       typeof sdp === 'string'
         ? sdp
@@ -222,6 +296,7 @@ export async function processWebRTCSignal({ trackId, sessionId, signalType, sdp,
     await peerConnection.setRemoteDescription(remoteDesc);
     const answer = await peerConnection.createAnswer();
     await peerConnection.setLocalDescription(answer);
+    logStep('answer created', { hasSdp: Boolean(answer?.sdp) });
     await postSignal({
       trackId,
       sessionId: sessionId || activeSession?.sessionId || '',
@@ -229,6 +304,8 @@ export async function processWebRTCSignal({ trackId, sessionId, signalType, sdp,
       sdp: answer?.sdp,
       target: 'parent',
     });
+    logStep('answer sent', { trackId, sessionId: sessionId || activeSession?.sessionId || '' });
+    await flushPendingRemoteCandidates();
     emitState('connecting');
     return true;
   }
@@ -238,10 +315,14 @@ export async function processWebRTCSignal({ trackId, sessionId, signalType, sdp,
       typeof candidate === 'string'
         ? { candidate, sdpMid: null, sdpMLineIndex: null }
         : candidate;
-    const fp = candidateFingerprint(candidateObject);
-    if (!fp || receivedIceFingerprintSet.has(fp)) return true;
-    receivedIceFingerprintSet.add(fp);
-    await peerConnection.addIceCandidate(new RTCIceCandidate(candidateObject));
+    if (!peerConnection?.remoteDescription) {
+      pendingRemoteCandidates.push(candidateObject);
+      logStep('ice queued until remote description set', {
+        queuedCount: pendingRemoteCandidates.length,
+      });
+      return true;
+    }
+    await applyRemoteCandidate(candidateObject);
     return true;
   }
 
@@ -249,18 +330,33 @@ export async function processWebRTCSignal({ trackId, sessionId, signalType, sdp,
 }
 
 export async function stopWebRTCScreenShareSession() {
+  logStep('stop requested', {
+    trackId: activeSession?.trackId || '',
+    sessionId: activeSession?.sessionId || '',
+  });
   await cleanupTransport();
 }
 
 export async function stopWebRTCScreenShareRemotely({ trackId, sessionId, reason } = {}) {
   if (!trackId) return;
+  const payload = {
+    trackId,
+    sessionId,
+    reason: reason || 'child-ended',
+  };
+  logStep('POST /screen-share/webrtc/stop request', payload);
   try {
-    await instance.post('/screen-share/webrtc/stop', {
-      trackId,
-      sessionId,
-      reason: reason || 'child-stopped',
+    const response = await instance.post('/screen-share/webrtc/stop', payload);
+    logStep('POST /screen-share/webrtc/stop response', {
+      status: response?.status,
+      data: response?.data,
     });
   } catch (e) {
+    logStep('POST /screen-share/webrtc/stop error', {
+      status: e?.response?.status,
+      data: e?.response?.data,
+      message: e?.message || String(e || ''),
+    });
     console.warn('ScreenShareWebRTC: remote stop failed', e?.message || e);
   }
 }
@@ -273,6 +369,9 @@ export function getWebRTCScreenShareHealth() {
     mediaType: activeSession?.mediaType || '',
     peerState: peerConnection?.connectionState || 'none',
     localTrackCount: localStream?.getTracks?.()?.length || 0,
+    pendingRemoteIceCount: pendingRemoteCandidates.length,
+    iceSentCount: stats.iceSent,
+    iceReceivedCount: stats.iceReceived,
   };
 }
 

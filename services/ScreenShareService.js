@@ -8,12 +8,16 @@ import {
   stopWebRTCScreenShareSession,
   processWebRTCSignal,
   stopWebRTCScreenShareRemotely,
+  getWebRTCScreenShareHealth,
 } from './ScreenShareWebRTC';
 
 const ScreenShareModule = NativeModules?.ScreenShareModule;
 const ScreenCaptureModule = NativeModules?.ScreenCaptureModule;
 const SCREEN_SHARE_RUNTIME_TICK_MS = 15000;
 const DEFAULT_OFFER_TIMEOUT_MS = 30000;
+const SESSION_REQUEST_EVENTS = ['webrtc-session-requested', 'webrtc_session_requested', 'screen-share-requested'];
+const SIGNAL_EVENTS = ['webrtc-signal', 'webrtc_signal', 'screen-share-signal', 'screen_share_signal'];
+const SESSION_STOP_EVENTS = ['webrtc-session-stopped', 'webrtc_session_stopped', 'screen-share-stopped'];
 const SCREEN_SHARE_STATES = {
   IDLE: 'idle',
   REQUESTED: 'requested',
@@ -29,8 +33,8 @@ const SCREEN_SHARE_STATES = {
 let runtimeTickTimer = null;
 let runtimeInFlight = false;
 let realtimeClient = null;
-let realtimeChannel = null;
-let currentFamilyChannelName = '';
+let realtimeChannels = new Map();
+let currentRealtimeChannelNames = [];
 let appStateSubscription = null;
 let activeSession = null;
 let activeState = SCREEN_SHARE_STATES.IDLE;
@@ -38,6 +42,7 @@ const seenEventKeys = new Set();
 let waitingOfferTimer = null;
 let remoteRevisionSeen = '';
 let pusherConfigOverride = null;
+const PusherClientCtor = Pusher?.Pusher || Pusher;
 
 function setScreenShareState(nextState, extra = {}) {
   activeState = String(nextState || SCREEN_SHARE_STATES.IDLE);
@@ -107,6 +112,19 @@ async function resolveFamilyChannelName() {
   return `family_${familyId}`;
 }
 
+async function resolveRealtimeChannelNames() {
+  const names = new Set();
+  const familyChannel = await resolveFamilyChannelName();
+  const trackId = await resolveTrackId();
+  if (familyChannel) names.add(familyChannel);
+  if (trackId) {
+    names.add(`track_${trackId}`);
+    names.add(`screen_share_${trackId}`);
+    names.add(`screen-share-${trackId}`);
+  }
+  return Array.from(names);
+}
+
 function matchesActiveSession(trackId, sessionId) {
   if (!activeSession) return false;
   const sameTrack = String(activeSession.trackId) === String(trackId);
@@ -118,6 +136,12 @@ function matchesActiveSession(trackId, sessionId) {
 
 async function stopActiveSession(reason = 'stopped', { notifyBackend = true } = {}) {
   if (!activeSession) return;
+  console.log('ScreenShareService: stop/cleanup', {
+    reason,
+    trackId: activeSession?.trackId,
+    sessionId: activeSession?.sessionId,
+    notifyBackend,
+  });
   setScreenShareState(SCREEN_SHARE_STATES.ENDING, { reason });
   clearWaitingOfferTimer();
   const toStop = { ...activeSession };
@@ -150,6 +174,12 @@ async function startRequestedSession({ trackId, sessionId, mediaType, intervalMs
   if (activeSession && !matchesActiveSession(trackId, sessionId)) {
     await stopActiveSession('replaced-by-new-request', { notifyBackend: true });
   }
+  console.log('ScreenShareService: request received', {
+    trackId,
+    sessionId: safeSessionId,
+    mediaType,
+    intervalMs,
+  });
   setScreenShareState(SCREEN_SHARE_STATES.REQUESTED, { trackId, sessionId: safeSessionId, mediaType });
   await startScreenShare({ trackId, intervalMs, sessionId: safeSessionId, skipTransport: true });
   activeSession = { trackId, sessionId: safeSessionId, mediaType, intervalMs, startedAtMs: Date.now() };
@@ -178,6 +208,7 @@ async function handleSessionRequested(payload) {
 }
 
 async function handleSignal(payload) {
+  const localTrackId = await resolveTrackId();
   const parsed = normalizeSessionPayload(payload);
   console.log('ScreenShareService: webrtc-signal received', {
     trackId: parsed.trackId,
@@ -188,6 +219,7 @@ async function handleSignal(payload) {
     hasCandidate: Boolean(parsed.candidate),
   });
   if (!parsed.trackId || !parsed.signalType) return;
+  if (!localTrackId || parsed.trackId !== localTrackId) return;
   if (
     !activeSession &&
     parsed.signalType === 'offer' &&
@@ -243,23 +275,34 @@ export function configureScreenShareRealtime(config) {
 }
 
 async function ensureRealtimeSubscription() {
-  const channelName = await resolveFamilyChannelName();
-  if (!channelName) return;
+  const channelNames = await resolveRealtimeChannelNames();
+  if (!Array.isArray(channelNames) || channelNames.length === 0) {
+    console.warn('ScreenShareService: no channel target (familyId/trackId missing)');
+    return;
+  }
   const cfg = getPusherConfig();
   if (!cfg) {
     console.warn('ScreenShareService: Pusher config missing; realtime disabled');
     return;
   }
-  console.log('ScreenShareService: subscribing realtime channel', channelName);
-  if (realtimeClient && currentFamilyChannelName === channelName) return;
+  const sameChannels =
+    channelNames.length === currentRealtimeChannelNames.length &&
+    channelNames.every((name) => currentRealtimeChannelNames.includes(name));
+  if (realtimeClient && sameChannels) return;
 
-  if (realtimeChannel) {
-    realtimeChannel.unbind_all?.();
-    realtimeClient?.unsubscribe(currentFamilyChannelName);
-    realtimeChannel = null;
+  console.log('ScreenShareService: subscribing realtime channels', channelNames.join(', '));
+
+  for (const [name, channel] of realtimeChannels.entries()) {
+    channel.unbind_all?.();
+    realtimeClient?.unsubscribe(name);
   }
+  realtimeChannels = new Map();
+
   if (!realtimeClient) {
-    realtimeClient = new Pusher(cfg.key, {
+    if (typeof PusherClientCtor !== 'function') {
+      throw new Error('Pusher client constructor is unavailable');
+    }
+    realtimeClient = new PusherClientCtor(cfg.key, {
       cluster: cfg.cluster,
       wsHost: cfg.wsHost,
       wsPort: cfg.wsPort,
@@ -268,27 +311,36 @@ async function ensureRealtimeSubscription() {
       enabledTransports: cfg.enabledTransports,
     });
   }
-  currentFamilyChannelName = channelName;
-  realtimeChannel = realtimeClient.subscribe(channelName);
+  currentRealtimeChannelNames = channelNames;
 
   const bindDedup = (eventName, handler) => {
-    realtimeChannel.bind(eventName, async (payload) => {
-      const dedupKey = buildEventKey(eventName, payload);
-      if (seenEventKeys.has(dedupKey)) return;
-      seenEventKeys.add(dedupKey);
-      if (seenEventKeys.size > 400) {
-        const first = seenEventKeys.values().next()?.value;
-        if (first) seenEventKeys.delete(first);
-      }
-      await handler(payload).catch((e) => {
-        console.warn(`ScreenShareService: ${eventName} handler failed`, e?.message || e);
+    for (const name of channelNames) {
+      const channel = realtimeClient.subscribe(name);
+      realtimeChannels.set(name, channel);
+      channel.bind('pusher:subscription_succeeded', () => {
+        console.log('ScreenShareService: subscribed', { channel: name, eventName });
       });
-    });
+      channel.bind('pusher:subscription_error', (err) => {
+        console.warn('ScreenShareService: subscription error', { channel: name, eventName, err });
+      });
+      channel.bind(eventName, async (payload) => {
+        const dedupKey = `${name}|${buildEventKey(eventName, payload)}`;
+        if (seenEventKeys.has(dedupKey)) return;
+        seenEventKeys.add(dedupKey);
+        if (seenEventKeys.size > 400) {
+          const first = seenEventKeys.values().next()?.value;
+          if (first) seenEventKeys.delete(first);
+        }
+        await handler(payload).catch((e) => {
+          console.warn(`ScreenShareService: ${eventName} handler failed`, e?.message || e);
+        });
+      });
+    }
   };
 
-  bindDedup('webrtc-session-requested', handleSessionRequested);
-  bindDedup('webrtc-signal', handleSignal);
-  bindDedup('webrtc-session-stopped', handleSessionStopped);
+  SESSION_REQUEST_EVENTS.forEach((eventName) => bindDedup(eventName, handleSessionRequested));
+  SIGNAL_EVENTS.forEach((eventName) => bindDedup(eventName, handleSignal));
+  SESSION_STOP_EVENTS.forEach((eventName) => bindDedup(eventName, handleSessionStopped));
 }
 
 function normalizeIntervalMs(intervalMs) {
@@ -371,11 +423,24 @@ export async function stopScreenShare({ trackId } = {}) {
   }
 
   const resolvedTrackId = await resolveTrackId(trackId);
+  const currentSessionId = activeSession?.sessionId || '';
   await stopWebRTCScreenShareSession().catch(() => {});
   await ScreenShareModule.stopScreenShare();
+  if (resolvedTrackId && currentSessionId) {
+    await stopWebRTCScreenShareRemotely({
+      trackId: resolvedTrackId,
+      sessionId: currentSessionId,
+      reason: 'child-ended',
+    }).catch(() => {});
+  }
   await syncScreenShareState(resolvedTrackId, false).catch((e) => {
     console.warn('stopScreenShare: backend sync failed', e?.message || e);
   });
+  if (activeSession && String(activeSession.trackId) === String(resolvedTrackId)) {
+    activeSession = null;
+  }
+  clearWaitingOfferTimer();
+  setScreenShareState(SCREEN_SHARE_STATES.IDLE, { reason: 'child-ended' });
   return { trackId: resolvedTrackId, active: false };
 }
 
@@ -455,18 +520,18 @@ export function initScreenShareRuntime() {
       appStateSubscription = null;
     }
     clearWaitingOfferTimer();
-    if (realtimeChannel) {
-      realtimeChannel.unbind_all?.();
-      if (realtimeClient && currentFamilyChannelName) {
-        realtimeClient.unsubscribe(currentFamilyChannelName);
+    for (const [name, channel] of realtimeChannels.entries()) {
+      channel.unbind_all?.();
+      if (realtimeClient) {
+        realtimeClient.unsubscribe(name);
       }
-      realtimeChannel = null;
     }
+    realtimeChannels = new Map();
     if (realtimeClient) {
       realtimeClient.disconnect();
       realtimeClient = null;
     }
-    currentFamilyChannelName = '';
+    currentRealtimeChannelNames = [];
   };
 }
 
@@ -476,6 +541,7 @@ export function getScreenShareRuntimeState() {
     hasSession: Boolean(activeSession),
     trackId: activeSession?.trackId || '',
     sessionId: activeSession?.sessionId || '',
+    webrtc: getWebRTCScreenShareHealth(),
   };
 }
 
