@@ -26,6 +26,8 @@ import { uploadCameraPhoto } from '../../services/CameraPhotoService'
 import { debugStartForegroundService, debugStopForegroundService } from '../../services/ForegroundServiceManager'
 import { isAccessibilityEnabled, openAccessibilitySettings, hasUsageAccess, openUsageAccessSettings } from '../../services/AccessibilityServiceBridge'
 import { getScreenShareState, startScreenShare, stopScreenShare } from '../../services/ScreenShareService'
+import { getScreenShareRuntimeState } from '../../services/ScreenShareService'
+import { getWebRTCScreenShareLogs } from '../../services/ScreenShareWebRTC'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 
 const { ScreenLock, ScreenCaptureModule } = NativeModules
@@ -56,6 +58,8 @@ const Permission = ({ navigation }) => {
   const [activeCameraType, setActiveCameraType] = useState('front')
   const [pendingCapture, setPendingCapture] = useState(null)
   const [screenShareStatus, setScreenShareStatus] = useState('idle')
+  const [screenShareRuntime, setScreenShareRuntime] = useState(null)
+  const [screenShareLogs, setScreenShareLogs] = useState([])
   const isCapturingRef = useRef(false)
   const captureResolveRef = useRef(null)
 
@@ -291,6 +295,19 @@ const Permission = ({ navigation }) => {
       if (state === "active") recheckPermissions()
     })
     return () => sub.remove()
+  }, [])
+
+  useEffect(() => {
+    if (!__DEV__) return undefined
+    const updateDebug = () => {
+      try {
+        setScreenShareRuntime(getScreenShareRuntimeState())
+        setScreenShareLogs(getWebRTCScreenShareLogs(12))
+      } catch {}
+    }
+    updateDebug()
+    const timer = setInterval(updateDebug, 1000)
+    return () => clearInterval(timer)
   }, [])
 
   const allAllowed = Object.values(permissions).every(v => v === true)
@@ -529,6 +546,25 @@ const Permission = ({ navigation }) => {
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.debugStatusText}>ScreenShare Debug: {screenShareStatus}</Text>
+                <View style={styles.webrtcDebugPanel}>
+                  <Text style={styles.webrtcDebugTitle}>WebRTC Runtime</Text>
+                  <Text style={styles.webrtcDebugLine}>state: {screenShareRuntime?.state || '-'}</Text>
+                  <Text style={styles.webrtcDebugLine}>sessionId: {screenShareRuntime?.sessionId || '-'}</Text>
+                  <Text style={styles.webrtcDebugLine}>peer: {screenShareRuntime?.webrtc?.peerState || 'none'}</Text>
+                  <Text style={styles.webrtcDebugLine}>
+                    ice sent/recv: {screenShareRuntime?.webrtc?.iceSentCount || 0}/{screenShareRuntime?.webrtc?.iceReceivedCount || 0}
+                  </Text>
+                  <Text style={styles.webrtcDebugTitle}>Recent WebRTC Logs</Text>
+                  {screenShareLogs.length === 0 ? (
+                    <Text style={styles.webrtcDebugLine}>No logs yet</Text>
+                  ) : (
+                    screenShareLogs.map((item, idx) => (
+                      <Text key={`${item.at}-${idx}`} style={styles.webrtcDebugLogLine}>
+                        [{String(item.at || '').slice(11, 19)}] {item.message}
+                      </Text>
+                    ))
+                  )}
+                </View>
               </View>
             ) : null}
             <PermissionItem title="Accessibility Service" subtitle="Enable KTO Kids monitoring service" permissionKey="accessibilityService" iconName="human" />
@@ -600,6 +636,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#111827',
     fontWeight: '600',
+  },
+  webrtcDebugPanel: {
+    backgroundColor: '#111827',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+  },
+  webrtcDebugTitle: {
+    color: '#F9FAFB',
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  webrtcDebugLine: {
+    color: '#D1D5DB',
+    fontSize: 11,
+    marginBottom: 2,
+  },
+  webrtcDebugLogLine: {
+    color: '#93C5FD',
+    fontSize: 10,
+    marginBottom: 2,
   },
   permissionItem: {
     flexDirection: "row", justifyContent: "space-between",

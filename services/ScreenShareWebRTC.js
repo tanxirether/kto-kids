@@ -21,12 +21,23 @@ let stats = {
   iceSent: 0,
   iceReceived: 0,
 };
+const LOG_LIMIT = 80;
+const webrtcLogs = [];
 
 function emitState(state, extra = {}) {
   onStateChangeHandler?.(state, extra);
 }
 
 function logStep(message, payload = {}) {
+  const entry = {
+    at: new Date().toISOString(),
+    message: String(message || ''),
+    payload: payload && typeof payload === 'object' ? payload : {},
+  };
+  webrtcLogs.push(entry);
+  if (webrtcLogs.length > LOG_LIMIT) {
+    webrtcLogs.splice(0, webrtcLogs.length - LOG_LIMIT);
+  }
   console.log('ScreenShareWebRTC:', message, payload);
 }
 
@@ -44,6 +55,16 @@ function candidateFingerprint(candidate) {
     (typeof candidate === 'string' ? candidate : '') ||
     '';
   return String(raw || '').trim();
+}
+
+function extractVideoTrackSnapshot(stream) {
+  const tracks = stream?.getVideoTracks?.() || [];
+  return tracks.map((track) => ({
+    id: String(track?.id || ''),
+    enabled: Boolean(track?.enabled),
+    readyState: String(track?.readyState || ''),
+    muted: Boolean(track?.muted),
+  }));
 }
 
 async function postSignal({
@@ -64,21 +85,33 @@ async function postSignal({
   if (sdp) payload.sdp = sdp;
   if (candidate) payload.candidate = candidate;
   logStep('POST /screen-share/webrtc/signal request', payload);
-  try {
-    const response = await instance.post('/screen-share/webrtc/signal', payload);
-    logStep('POST /screen-share/webrtc/signal response', {
-      status: response?.status,
-      data: response?.data,
-    });
-    return response;
-  } catch (e) {
-    logStep('POST /screen-share/webrtc/signal error', {
-      status: e?.response?.status,
-      data: e?.response?.data,
-      message: e?.message || String(e || ''),
-    });
-    throw e;
+  const maxAttempts = signalType === 'answer' ? 3 : 1;
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await instance.post('/screen-share/webrtc/signal', payload);
+      logStep('POST /screen-share/webrtc/signal response', {
+        status: response?.status,
+        data: response?.data,
+        signalType,
+        attempt,
+      });
+      return response;
+    } catch (e) {
+      lastError = e;
+      logStep('POST /screen-share/webrtc/signal error', {
+        status: e?.response?.status,
+        data: e?.response?.data,
+        message: e?.message || String(e || ''),
+        signalType,
+        attempt,
+      });
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 350 * attempt));
+      }
+    }
   }
+  throw lastError || new Error('Signal post failed');
 }
 
 async function getLocalScreenStream() {
@@ -146,6 +179,10 @@ function wirePeerEvents() {
 }
 
 async function cleanupTransport() {
+  logStep('cleanup start', {
+    trackId: activeSession?.trackId || '',
+    sessionId: activeSession?.sessionId || '',
+  });
   clearOfferTimeout();
   try {
     if (peerConnection) {
@@ -171,7 +208,7 @@ async function cleanupTransport() {
   receivedIceFingerprintSet.clear();
   pendingRemoteCandidates.length = 0;
   stats = { iceSent: 0, iceReceived: 0 };
-  logStep('cleanup complete');
+  logStep('cleanup end');
 }
 
 async function applyRemoteCandidate(candidateObject) {
@@ -239,9 +276,19 @@ export async function startWebRTCScreenShareSession({
 
   emitState('preparing_media');
   localStream = await createLocalStream(activeSession.mediaType);
+  const videoTracks = localStream?.getVideoTracks?.() || [];
+  if (videoTracks.length === 0) {
+    throw new Error('No local screen video track found');
+  }
+  for (const track of videoTracks) {
+    try {
+      track.enabled = true;
+    } catch {}
+  }
   logStep('local stream prepared', {
     mediaType: activeSession.mediaType,
     trackCount: localStream?.getTracks?.()?.length || 0,
+    videoTracks: extractVideoTrackSnapshot(localStream),
   });
 
   peerConnection = new RTCPeerConnection({ iceServers });
@@ -256,6 +303,11 @@ export async function startWebRTCScreenShareSession({
     sessionId: activeSession.sessionId,
   });
   offerTimeout = setTimeout(() => {
+    logStep('timeout fired', {
+      reason: 'waiting-parent-offer',
+      trackId: activeSession?.trackId || '',
+      sessionId: activeSession?.sessionId || '',
+    });
     onErrorHandler?.(new Error('Timed out waiting for parent offer'));
     onEndedHandler?.('offer-timeout');
   }, Math.max(5000, Number(offerTimeoutMs) || DEFAULT_OFFER_TIMEOUT_MS));
@@ -293,7 +345,17 @@ export async function processWebRTCSignal({ trackId, sessionId, signalType, sdp,
           : '';
     if (!offerSdp) throw new Error('Offer SDP missing or invalid');
     const remoteDesc = new RTCSessionDescription({ type: 'offer', sdp: offerSdp });
-    await peerConnection.setRemoteDescription(remoteDesc);
+    try {
+      await peerConnection.setRemoteDescription(remoteDesc);
+      logStep('setRemoteDescription success', { trackId, sessionId });
+    } catch (e) {
+      logStep('setRemoteDescription failed', {
+        trackId,
+        sessionId,
+        message: e?.message || String(e || ''),
+      });
+      throw e;
+    }
     const answer = await peerConnection.createAnswer();
     await peerConnection.setLocalDescription(answer);
     logStep('answer created', { hasSdp: Boolean(answer?.sdp) });
@@ -305,6 +367,9 @@ export async function processWebRTCSignal({ trackId, sessionId, signalType, sdp,
       target: 'parent',
     });
     logStep('answer sent', { trackId, sessionId: sessionId || activeSession?.sessionId || '' });
+    logStep('local screen track status', {
+      videoTracks: extractVideoTrackSnapshot(localStream),
+    });
     await flushPendingRemoteCandidates();
     emitState('connecting');
     return true;
@@ -379,5 +444,10 @@ export function ensureWebRTCScreenShareSession() {
   if (!activeSession || !peerConnection) return false;
   const state = String(peerConnection?.connectionState || '');
   return state === 'connected' || state === 'connecting';
+}
+
+export function getWebRTCScreenShareLogs(limit = 40) {
+  const safeLimit = Math.min(200, Math.max(1, Number(limit) || 40));
+  return webrtcLogs.slice(-safeLimit);
 }
 

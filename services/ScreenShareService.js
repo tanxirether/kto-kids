@@ -40,26 +40,86 @@ let activeSession = null;
 let activeState = SCREEN_SHARE_STATES.IDLE;
 const seenEventKeys = new Set();
 let waitingOfferTimer = null;
+let offerRecoveryTimer = null;
 let remoteRevisionSeen = '';
 let pusherConfigOverride = null;
 const PusherClientCtor = Pusher?.Pusher || Pusher;
+const STATUS_SESSION_CACHE_TTL_MS = 10000;
+const statusSessionCache = new Map();
+let statusSessionFetchBlockedUntilMs = 0;
+let lastStatusSessionWarnAtMs = 0;
 
 function setScreenShareState(nextState, extra = {}) {
   activeState = String(nextState || SCREEN_SHARE_STATES.IDLE);
   console.log('ScreenShareService: state ->', activeState, extra);
 }
 
+function safeJsonParse(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeSessionPayload(payload) {
-  const root = payload && typeof payload === 'object' ? payload : {};
+  const payloadObj =
+    (payload && typeof payload === 'object' ? payload : null) || safeJsonParse(payload) || {};
+  const resolvedData =
+    (payloadObj.data && typeof payloadObj.data === 'object'
+      ? payloadObj.data
+      : safeJsonParse(payloadObj.data)) || payloadObj;
+  const root = resolvedData && typeof resolvedData === 'object' ? resolvedData : {};
   const data = root.data && typeof root.data === 'object' ? root.data : root;
   const signal = data.signal && typeof data.signal === 'object' ? data.signal : {};
-  const trackId = String(data.trackId || data.track_id || '').trim();
-  const sessionId = String(data.sessionId || data.session_id || '').trim();
-  const mediaType = String(data.mediaType || data.media_type || 'screen').trim().toLowerCase();
+  const trackId = String(
+    data.trackId ||
+      data.track_id ||
+      signal.trackId ||
+      signal.track_id ||
+      root.trackId ||
+      root.track_id ||
+      '',
+  ).trim();
+  const sessionId = String(
+    data.sessionId ||
+      data.session_id ||
+      signal.sessionId ||
+      signal.session_id ||
+      root.sessionId ||
+      root.session_id ||
+      '',
+  ).trim();
+  const mediaType = String(
+    data.mediaType ||
+      data.media_type ||
+      signal.mediaType ||
+      signal.media_type ||
+      root.mediaType ||
+      root.media_type ||
+      'screen',
+  )
+    .trim()
+    .toLowerCase();
   const intervalMs = normalizeIntervalMs(data.intervalMs ?? data.interval_ms ?? 2500);
   const rawSignalType = data.signalType || data.signal_type || data.type || signal.type || '';
-  const signalType = String(rawSignalType).trim().toLowerCase();
-  const source = String(data.senderType || data.sender_type || data.sender || '').trim().toLowerCase();
+  const signalType = String(rawSignalType).trim().toLowerCase().replace(/_/g, '-');
+  const source = String(
+    data.senderType ||
+      data.sender_type ||
+      data.sender ||
+      signal.senderType ||
+      signal.sender_type ||
+      signal.sender ||
+      root.senderType ||
+      root.sender_type ||
+      root.sender ||
+      '',
+  )
+    .trim()
+    .toLowerCase();
   const candidate =
     data.candidate ||
     data.iceCandidate ||
@@ -93,6 +153,13 @@ function clearWaitingOfferTimer() {
   }
 }
 
+function clearOfferRecoveryTimer() {
+  if (offerRecoveryTimer) {
+    clearInterval(offerRecoveryTimer);
+    offerRecoveryTimer = null;
+  }
+}
+
 function buildEventKey(eventName, payload) {
   const s = normalizeSessionPayload(payload);
   return [
@@ -104,6 +171,81 @@ function buildEventKey(eventName, payload) {
     JSON.stringify(s.candidate || ''),
     s.sdp ? s.sdp.slice(0, 24) : '',
   ].join('|');
+}
+
+async function resolveActiveSessionIdFromStatus(trackId) {
+  const safeTrackId = String(trackId || '').trim();
+  if (!safeTrackId) return '';
+  const now = Date.now();
+  if (statusSessionFetchBlockedUntilMs > now) {
+    return '';
+  }
+  const cached = statusSessionCache.get(safeTrackId);
+  if (cached && now - cached.atMs <= STATUS_SESSION_CACHE_TTL_MS) {
+    return String(cached.sessionId || '');
+  }
+  try {
+    const res = await instance.get(`/screen-share/webrtc/status/${encodeURIComponent(safeTrackId)}`);
+    const data = res?.data?.data || {};
+    const sessionId = String(data?.sessionId || '').trim();
+    const active = Boolean(data?.active);
+    const status = String(data?.status || '').trim().toLowerCase();
+    if (active && sessionId && status !== 'stopped') {
+      statusSessionCache.set(safeTrackId, { sessionId, atMs: now });
+      console.log('ScreenShareService: status session resolved', {
+        trackId: safeTrackId,
+        sessionId,
+        status,
+      });
+      return sessionId;
+    }
+  } catch (e) {
+    const statusCode = Number(e?.response?.status || 0);
+    if (statusCode === 401 || statusCode === 403) {
+      // Child build may not be authorized for this endpoint; avoid noisy retries.
+      statusSessionFetchBlockedUntilMs = now + 5 * 60 * 1000;
+    }
+    if (now - lastStatusSessionWarnAtMs < 30000) {
+      return '';
+    }
+    lastStatusSessionWarnAtMs = now;
+    console.warn('ScreenShareService: status session resolve failed', {
+      trackId: safeTrackId,
+      statusCode,
+      message: e?.message || String(e || ''),
+    });
+  }
+  return '';
+}
+
+async function resolveLatestOfferFromBackend(trackId) {
+  const safeTrackId = String(trackId || '').trim();
+  if (!safeTrackId) return null;
+  try {
+    const res = await instance.get(`/screen-share/webrtc/latest-offer/${encodeURIComponent(safeTrackId)}`);
+    const data = res?.data?.data || {};
+    const parsed = normalizeSessionPayload(data);
+    const sdp = String(parsed.sdp || '').trim();
+    if (!parsed.sessionId || !sdp) return null;
+    return {
+      ...parsed,
+      trackId: parsed.trackId || safeTrackId,
+      signalType: 'offer',
+      senderType: parsed.senderType || 'parent',
+      sdp,
+    };
+  } catch (e) {
+    const statusCode = Number(e?.response?.status || 0);
+    // 404 just means no latest offer yet, do not spam.
+    if (statusCode !== 404) {
+      console.warn('ScreenShareService: latest offer fallback failed', {
+        trackId: safeTrackId,
+        statusCode,
+        message: e?.message || String(e || ''),
+      });
+    }
+    return null;
+  }
 }
 
 async function resolveFamilyChannelName() {
@@ -120,7 +262,9 @@ async function resolveRealtimeChannelNames() {
   if (trackId) {
     names.add(`track_${trackId}`);
     names.add(`screen_share_${trackId}`);
+    names.add(`screen-share_${trackId}`);
     names.add(`screen-share-${trackId}`);
+    names.add(`screen_share-${trackId}`);
   }
   return Array.from(names);
 }
@@ -144,6 +288,7 @@ async function stopActiveSession(reason = 'stopped', { notifyBackend = true } = 
   });
   setScreenShareState(SCREEN_SHARE_STATES.ENDING, { reason });
   clearWaitingOfferTimer();
+  clearOfferRecoveryTimer();
   const toStop = { ...activeSession };
   activeSession = null;
   await stopWebRTCScreenShareSession().catch(() => {});
@@ -194,6 +339,26 @@ async function startRequestedSession({ trackId, sessionId, mediaType, intervalMs
     onEnded: () => stopActiveSession('session-ended', { notifyBackend: false }),
   });
   clearWaitingOfferTimer();
+  clearOfferRecoveryTimer();
+  offerRecoveryTimer = setInterval(() => {
+    if (!activeSession) return;
+    if (activeState !== SCREEN_SHARE_STATES.WAITING_OFFER) return;
+    resolveLatestOfferFromBackend(activeSession.trackId)
+      .then(async (offerPayload) => {
+        if (!offerPayload) return;
+        if (!matchesActiveSession(offerPayload.trackId, offerPayload.sessionId)) return;
+        console.log('ScreenShareService: applying latest-offer fallback', {
+          trackId: offerPayload.trackId,
+          sessionId: offerPayload.sessionId,
+        });
+        await processWebRTCSignal({
+          ...offerPayload,
+          sessionId: offerPayload.sessionId || activeSession?.sessionId || '',
+          trackId: offerPayload.trackId || activeSession?.trackId || '',
+        });
+      })
+      .catch(() => {});
+  }, 3000);
   waitingOfferTimer = setTimeout(() => {
     stopActiveSession('offer-timeout', { notifyBackend: true });
   }, DEFAULT_OFFER_TIMEOUT_MS);
@@ -203,13 +368,36 @@ async function handleSessionRequested(payload) {
   const trackId = await resolveTrackId();
   if (!trackId) return;
   const parsed = normalizeSessionPayload(payload);
+  if (!parsed.sessionId && parsed.trackId === trackId) {
+    parsed.sessionId = await resolveActiveSessionIdFromStatus(trackId);
+  }
   if (!parsed.trackId || parsed.trackId !== trackId) return;
   await startRequestedSession(parsed);
+  // Some backends send the initial offer embedded in session-requested event.
+  if (parsed.signalType === 'offer' && parsed.sdp) {
+    console.log('ScreenShareService: embedded offer found in session-requested', {
+      trackId: parsed.trackId,
+      sessionId: parsed.sessionId,
+    });
+    await processWebRTCSignal({
+      ...parsed,
+      sessionId: parsed.sessionId || activeSession?.sessionId || '',
+      trackId: parsed.trackId || activeSession?.trackId || '',
+    }).catch((e) => {
+      console.warn('ScreenShareService: embedded offer process failed', e?.message || e);
+    });
+  }
 }
 
 async function handleSignal(payload) {
   const localTrackId = await resolveTrackId();
   const parsed = normalizeSessionPayload(payload);
+  if (!parsed.trackId && localTrackId) {
+    parsed.trackId = localTrackId;
+  }
+  if (!parsed.sessionId && parsed.trackId && localTrackId && parsed.trackId === localTrackId) {
+    parsed.sessionId = await resolveActiveSessionIdFromStatus(parsed.trackId);
+  }
   console.log('ScreenShareService: webrtc-signal received', {
     trackId: parsed.trackId,
     sessionId: parsed.sessionId,
@@ -219,13 +407,27 @@ async function handleSignal(payload) {
     hasCandidate: Boolean(parsed.candidate),
   });
   if (!parsed.trackId || !parsed.signalType) return;
-  if (!localTrackId || parsed.trackId !== localTrackId) return;
+  if (!localTrackId || parsed.trackId !== localTrackId) {
+    console.log('ScreenShareService: signal ignored (track mismatch)', {
+      localTrackId,
+      incomingTrackId: parsed.trackId,
+      sessionId: parsed.sessionId,
+      signalType: parsed.signalType,
+    });
+    return;
+  }
+  const sender = String(parsed.senderType || '').toLowerCase();
   if (
     !activeSession &&
     parsed.signalType === 'offer' &&
-    parsed.senderType === 'parent' &&
+    sender !== 'child' &&
     parsed.sessionId
   ) {
+    console.log('ScreenShareService: offer-triggered session bootstrap', {
+      trackId: parsed.trackId,
+      sessionId: parsed.sessionId,
+      senderType: sender || 'unknown',
+    });
     await startRequestedSession({
       trackId: parsed.trackId,
       sessionId: parsed.sessionId,
@@ -234,7 +436,14 @@ async function handleSignal(payload) {
     });
   }
   if (!matchesActiveSession(parsed.trackId, parsed.sessionId)) return;
-  if (parsed.senderType && parsed.senderType !== 'parent') return;
+  if (sender && sender !== 'parent') {
+    console.log('ScreenShareService: signal ignored (sender not parent)', {
+      senderType: sender,
+      sessionId: parsed.sessionId,
+      signalType: parsed.signalType,
+    });
+    return;
+  }
   await processWebRTCSignal({
     ...parsed,
     sessionId: parsed.sessionId || activeSession?.sessionId || '',
@@ -243,6 +452,9 @@ async function handleSignal(payload) {
 
 async function handleSessionStopped(payload) {
   const parsed = normalizeSessionPayload(payload);
+  if (!parsed.sessionId && parsed.trackId) {
+    parsed.sessionId = await resolveActiveSessionIdFromStatus(parsed.trackId);
+  }
   if (!matchesActiveSession(parsed.trackId, parsed.sessionId)) return;
   await stopActiveSession('parent-stopped', { notifyBackend: false });
 }
@@ -440,6 +652,7 @@ export async function stopScreenShare({ trackId } = {}) {
     activeSession = null;
   }
   clearWaitingOfferTimer();
+  clearOfferRecoveryTimer();
   setScreenShareState(SCREEN_SHARE_STATES.IDLE, { reason: 'child-ended' });
   return { trackId: resolvedTrackId, active: false };
 }
@@ -477,6 +690,22 @@ async function runtimeTick() {
   try {
     await ensureRealtimeSubscription();
     const state = await getScreenShareState({});
+    const localTrackId = await resolveTrackId();
+    if (!activeSession && state?.active && localTrackId) {
+      const recoveredSessionId = await resolveActiveSessionIdFromStatus(localTrackId);
+      if (recoveredSessionId) {
+        console.log('ScreenShareService: recovering active session from status', {
+          trackId: localTrackId,
+          sessionId: recoveredSessionId,
+        });
+        await startRequestedSession({
+          trackId: localTrackId,
+          sessionId: recoveredSessionId,
+          mediaType: 'screen',
+          intervalMs: state?.intervalMs || 2500,
+        });
+      }
+    }
     if (!state?.active && activeSession) {
       await stopActiveSession('backend-state-inactive', { notifyBackend: false });
     }
@@ -520,6 +749,7 @@ export function initScreenShareRuntime() {
       appStateSubscription = null;
     }
     clearWaitingOfferTimer();
+    clearOfferRecoveryTimer();
     for (const [name, channel] of realtimeChannels.entries()) {
       channel.unbind_all?.();
       if (realtimeClient) {
