@@ -25,6 +25,7 @@ import { getPending as getPendingCameraCapture, clearPending as clearPendingCame
 import { uploadCameraPhoto } from '../../services/CameraPhotoService'
 import { debugStartForegroundService, debugStopForegroundService } from '../../services/ForegroundServiceManager'
 import { isAccessibilityEnabled, openAccessibilitySettings, hasUsageAccess, openUsageAccessSettings } from '../../services/AccessibilityServiceBridge'
+import { getScreenShareState, startScreenShare, stopScreenShare } from '../../services/ScreenShareService'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 
 const { ScreenLock, ScreenCaptureModule } = NativeModules
@@ -54,6 +55,7 @@ const Permission = ({ navigation }) => {
   const [cameraReady, setCameraReady] = useState(false)
   const [activeCameraType, setActiveCameraType] = useState('front')
   const [pendingCapture, setPendingCapture] = useState(null)
+  const [screenShareStatus, setScreenShareStatus] = useState('idle')
   const isCapturingRef = useRef(false)
   const captureResolveRef = useRef(null)
 
@@ -364,6 +366,74 @@ const Permission = ({ navigation }) => {
     }
   }
 
+  const handleScreenShareServiceOnlyTest = async () => {
+    try {
+      setScreenShareStatus('starting-service-only...')
+      const result = await startScreenShare({ skipTransport: true, intervalMs: 2500 })
+      setScreenShareStatus(`service-only active (${result?.trackId || 'no-track'})`)
+      Alert.alert('Screen share test', 'Service-only screen share started (no WebRTC transport).')
+    } catch (e) {
+      setScreenShareStatus(`error: ${e?.message || 'unknown'}`)
+      Alert.alert('Screen share test failed', e?.message || 'Could not start service-only test')
+    }
+  }
+
+  const handleScreenShareFullTest = async () => {
+    try {
+      setScreenShareStatus('starting-full-session...')
+      const result = await startScreenShare({ intervalMs: 2500 })
+      setScreenShareStatus(`full session active (${result?.trackId || 'no-track'})`)
+      Alert.alert('Screen share test', 'Full session started. This requires signaling/parent side to connect.')
+    } catch (e) {
+      const msg = String(e?.message || 'Could not start full screen share session')
+      if (msg.toLowerCase().includes('signaling socket')) {
+        try {
+          const fallback = await startScreenShare({ skipTransport: true, intervalMs: 2500 })
+          setScreenShareStatus(`service-only active (${fallback?.trackId || 'no-track'})`)
+          Alert.alert(
+            'Full session unavailable',
+            'Signaling/parent is not connected yet. Started service-only mode so you can test kid app flow now.',
+          )
+          return
+        } catch (fallbackErr) {
+          setScreenShareStatus(`error: ${fallbackErr?.message || msg}`)
+          Alert.alert(
+            'Screen share test failed',
+            fallbackErr?.message || 'Full and service-only modes both failed',
+          )
+          return
+        }
+      }
+      setScreenShareStatus(`error: ${msg}`)
+      Alert.alert('Full session failed', msg)
+    }
+  }
+
+  const handleScreenShareStopTest = async () => {
+    try {
+      await stopScreenShare()
+      setScreenShareStatus('stopped')
+      Alert.alert('Screen share test', 'Screen share stopped.')
+    } catch (e) {
+      setScreenShareStatus(`error: ${e?.message || 'unknown'}`)
+      Alert.alert('Stop failed', e?.message || 'Could not stop screen share')
+    }
+  }
+
+  const handleScreenShareStatusTest = async () => {
+    try {
+      const state = await getScreenShareState()
+      const label = state?.active
+        ? `active | trackId=${state?.trackId || ''} | interval=${state?.intervalMs || 0}`
+        : 'inactive'
+      setScreenShareStatus(label)
+      Alert.alert('Screen share status', label)
+    } catch (e) {
+      setScreenShareStatus(`error: ${e?.message || 'unknown'}`)
+      Alert.alert('Status failed', e?.message || 'Could not fetch screen share state')
+    }
+  }
+
   /* ================= UI ITEM ================= */
 
   const PermissionItem = ({ title, subtitle, permissionKey, iconName }) => (
@@ -442,6 +512,23 @@ const Permission = ({ navigation }) => {
                     <Text style={styles.debugButtonText}>Stop Service</Text>
                   </TouchableOpacity>
                 </View>
+                <View style={styles.debugButtonsRow}>
+                  <TouchableOpacity style={styles.debugButtonPrimary} onPress={handleScreenShareServiceOnlyTest}>
+                    <Text style={styles.debugButtonText}>Start Screen Share (Service-only)</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.debugButtonSecondary} onPress={handleScreenShareFullTest}>
+                    <Text style={styles.debugButtonText}>Start Screen Share (Full)</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.debugButtonsRow}>
+                  <TouchableOpacity style={styles.debugButtonSecondary} onPress={handleScreenShareStopTest}>
+                    <Text style={styles.debugButtonText}>Stop Screen Share</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.debugButtonNeutral} onPress={handleScreenShareStatusTest}>
+                    <Text style={styles.debugButtonText}>Get Screen Share Status</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.debugStatusText}>ScreenShare Debug: {screenShareStatus}</Text>
               </View>
             ) : null}
             <PermissionItem title="Accessibility Service" subtitle="Enable KTO Kids monitoring service" permissionKey="accessibilityService" iconName="human" />
@@ -506,6 +593,13 @@ const styles = StyleSheet.create({
   permissionsList: { padding: 16, paddingBottom: 120 },
   debugInlineContainer: {
     marginBottom: 12,
+  },
+  debugStatusText: {
+    marginTop: 8,
+    marginBottom: 8,
+    fontSize: 12,
+    color: '#111827',
+    fontWeight: '600',
   },
   permissionItem: {
     flexDirection: "row", justifyContent: "space-between",

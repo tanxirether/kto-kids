@@ -7,7 +7,11 @@ import com.facebook.react.uimanager.ViewManager
 
 class DeviceAccessPackage : ReactPackage {
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
-    return listOf(DeviceAccessModule(reactContext), ScreenCaptureModule(reactContext))
+    return listOf(
+      DeviceAccessModule(reactContext),
+      ScreenCaptureModule(reactContext),
+      ScreenShareModule(reactContext),
+    )
   }
 
   override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {

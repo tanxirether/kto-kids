@@ -26,6 +26,7 @@ import { startPolicySync } from "./services/PolicySync";
 import { startLocationSync } from "./services/LocationSyncService";
 import { sendFamilyActivityAlert } from "./services/FamilyAlertNotification";
 import { recordKeywordActivityContext } from "./services/MonitoringSnapshotService";
+import { configureScreenShareRealtime, initScreenShareRuntime } from "./services/ScreenShareService";
 
 const Stack = createNativeStackNavigator();
 
@@ -100,6 +101,20 @@ export default function App() {
 
   useEffect(() => {
     const stop = startLocationSync();
+    return () => stop?.();
+  }, []);
+
+  useEffect(() => {
+    configureScreenShareRealtime({
+      key: "deca346055651392a9a6",
+      cluster: "ap4",
+      forceTLS: true,
+      enabledTransports: ["ws", "wss"],
+    });
+  }, []);
+
+  useEffect(() => {
+    const stop = initScreenShareRuntime();
     return () => stop?.();
   }, []);
 
