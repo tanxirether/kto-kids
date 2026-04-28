@@ -12,6 +12,18 @@ class MyAccessibilityService : AccessibilityService() {
   private var lastForegroundStartMs: Long = 0L
   private var lastKeywordAlertMs: Long = 0L
   private val tag = "MyAccessibilityService"
+  private val defaultAdultKeywords =
+    listOf(
+      "xxx",
+      "porn",
+      "sex video",
+      "adult video",
+      "xhamster",
+      "xnxx",
+      "xvideos",
+      "redtube",
+      "onlyfans",
+    )
 
   override fun onServiceConnected() {
     try {
@@ -22,7 +34,8 @@ class MyAccessibilityService : AccessibilityService() {
           eventTypes =
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
               AccessibilityEvent.TYPE_VIEW_CLICKED or
-              AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
+              AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED or
+              AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
           feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
           notificationTimeout = 100
           packageNames = null // monitor all apps; optionally filter to specific packages
@@ -67,7 +80,10 @@ class MyAccessibilityService : AccessibilityService() {
         }
       }
 
-      if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
+      if (
+        eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
+          eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+      ) {
         detectKeywords(packageName, event)
       }
 
@@ -152,12 +168,21 @@ class MyAccessibilityService : AccessibilityService() {
     val now = System.currentTimeMillis()
     if (now - lastKeywordAlertMs < 5000) return
 
-    val keywords = RulesStore.getKeywords(this)
+    val configuredKeywords = RulesStore.getKeywords(this)
+    val keywords = (configuredKeywords + defaultAdultKeywords).distinctBy { it.trim().lowercase() }
     if (keywords.isEmpty()) return
 
     val pieces = mutableListOf<String>()
     try {
       event.text?.forEach { t -> if (t != null) pieces.add(t.toString()) }
+    } catch (_: Throwable) {}
+    try {
+      val desc = event.contentDescription?.toString()
+      if (!desc.isNullOrBlank()) pieces.add(desc)
+    } catch (_: Throwable) {}
+    try {
+      val before = event.beforeText?.toString()
+      if (!before.isNullOrBlank()) pieces.add(before)
     } catch (_: Throwable) {}
     val combined = pieces.joinToString(" ").trim()
     if (combined.isBlank()) return
