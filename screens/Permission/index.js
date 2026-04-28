@@ -298,11 +298,12 @@ const Permission = ({ navigation }) => {
   }, [])
 
   useEffect(() => {
-    if (!__DEV__) return undefined
     const updateDebug = () => {
       try {
         setScreenShareRuntime(getScreenShareRuntimeState())
-        setScreenShareLogs(getWebRTCScreenShareLogs(12))
+        if (__DEV__) {
+          setScreenShareLogs(getWebRTCScreenShareLogs(12))
+        }
       } catch {}
     }
     updateDebug()
@@ -519,6 +520,28 @@ const Permission = ({ navigation }) => {
 
         <ScrollView>
           <View style={styles.permissionsList}>
+            <View style={styles.runtimeIndicatorCard}>
+              <View style={styles.runtimeIndicatorHeader}>
+                <Text style={styles.runtimeIndicatorTitle}>Live Screen Runtime</Text>
+                <View
+                  style={[
+                    styles.runtimeIndicatorDot,
+                    screenShareRuntime?.state === 'connected'
+                      ? styles.runtimeIndicatorConnected
+                      : styles.runtimeIndicatorIdle,
+                  ]}
+                />
+              </View>
+              <Text style={styles.runtimeIndicatorLine}>
+                state: {screenShareRuntime?.state || 'idle'}
+              </Text>
+              <Text style={styles.runtimeIndicatorLine}>
+                session: {screenShareRuntime?.sessionId || '-'}
+              </Text>
+              <Text style={styles.runtimeIndicatorLine}>
+                peer: {screenShareRuntime?.webrtc?.peerState || 'none'}
+              </Text>
+            </View>
             {__DEV__ ? (
               <View style={styles.debugInlineContainer}>
                 <View style={styles.debugButtonsRow}>
@@ -627,6 +650,39 @@ const styles = StyleSheet.create({
   headerSubtext: { fontSize: 14, color: "#6B7280" },
 
   permissionsList: { padding: 16, paddingBottom: 120 },
+  runtimeIndicatorCard: {
+    backgroundColor: '#0F172A',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+  runtimeIndicatorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  runtimeIndicatorTitle: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  runtimeIndicatorDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  runtimeIndicatorConnected: {
+    backgroundColor: '#10B981',
+  },
+  runtimeIndicatorIdle: {
+    backgroundColor: '#F59E0B',
+  },
+  runtimeIndicatorLine: {
+    color: '#CBD5E1',
+    fontSize: 12,
+    marginBottom: 2,
+  },
   debugInlineContainer: {
     marginBottom: 12,
   },

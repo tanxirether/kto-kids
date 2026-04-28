@@ -13,7 +13,7 @@ import {
 
 const ScreenShareModule = NativeModules?.ScreenShareModule;
 const ScreenCaptureModule = NativeModules?.ScreenCaptureModule;
-const SCREEN_SHARE_RUNTIME_TICK_MS = 15000;
+const SCREEN_SHARE_RUNTIME_TICK_MS = 5000;
 const DEFAULT_OFFER_TIMEOUT_MS = 30000;
 const SESSION_REQUEST_EVENTS = ['webrtc-session-requested', 'webrtc_session_requested', 'screen-share-requested'];
 const SIGNAL_EVENTS = ['webrtc-signal', 'webrtc_signal', 'screen-share-signal', 'screen_share_signal'];
@@ -43,6 +43,8 @@ let waitingOfferTimer = null;
 let offerRecoveryTimer = null;
 let remoteRevisionSeen = '';
 let pusherConfigOverride = null;
+let requestBootstrapInFlight = false;
+let pendingEarlyOffer = null;
 const PusherClientCtor = Pusher?.Pusher || Pusher;
 const STATUS_SESSION_CACHE_TTL_MS = 10000;
 const statusSessionCache = new Map();
@@ -203,7 +205,8 @@ async function resolveActiveSessionIdFromStatus(trackId) {
     const statusCode = Number(e?.response?.status || 0);
     if (statusCode === 401 || statusCode === 403) {
       // Child build may not be authorized for this endpoint; avoid noisy retries.
-      statusSessionFetchBlockedUntilMs = now + 5 * 60 * 1000;
+      // Keep retry window short so child can recover quickly after parent starts a session.
+      statusSessionFetchBlockedUntilMs = now + 30 * 1000;
     }
     if (now - lastStatusSessionWarnAtMs < 30000) {
       return '';
@@ -291,6 +294,7 @@ async function stopActiveSession(reason = 'stopped', { notifyBackend = true } = 
   clearOfferRecoveryTimer();
   const toStop = { ...activeSession };
   activeSession = null;
+  pendingEarlyOffer = null;
   await stopWebRTCScreenShareSession().catch(() => {});
   await stopScreenShare({ trackId: toStop.trackId }).catch(() => {});
   if (notifyBackend) {
@@ -334,12 +338,32 @@ async function startRequestedSession({ trackId, sessionId, mediaType, intervalMs
     mediaType,
     offerTimeoutMs: DEFAULT_OFFER_TIMEOUT_MS,
     onStateChange: (state) => setScreenShareState(state),
-    onConnected: () => setScreenShareState(SCREEN_SHARE_STATES.CONNECTED),
+    onConnected: () => {
+      clearWaitingOfferTimer();
+      setScreenShareState(SCREEN_SHARE_STATES.CONNECTED);
+    },
     onError: onWebRTCSessionError,
     onEnded: () => stopActiveSession('session-ended', { notifyBackend: false }),
   });
   clearWaitingOfferTimer();
   clearOfferRecoveryTimer();
+  if (pendingEarlyOffer && matchesActiveSession(pendingEarlyOffer.trackId, pendingEarlyOffer.sessionId)) {
+    const earlyOffer = pendingEarlyOffer;
+    pendingEarlyOffer = null;
+    console.log('ScreenShareService: applying queued early offer', {
+      trackId: earlyOffer.trackId,
+      sessionId: earlyOffer.sessionId,
+    });
+    await processWebRTCSignal({
+      ...earlyOffer,
+      signalType: 'offer',
+      senderType: earlyOffer.senderType || 'parent',
+      sessionId: earlyOffer.sessionId || activeSession?.sessionId || '',
+      trackId: earlyOffer.trackId || activeSession?.trackId || '',
+    }).catch((e) => {
+      console.warn('ScreenShareService: queued early offer apply failed', e?.message || e);
+    });
+  }
   offerRecoveryTimer = setInterval(() => {
     if (!activeSession) return;
     if (activeState !== SCREEN_SHARE_STATES.WAITING_OFFER) return;
@@ -372,7 +396,15 @@ async function handleSessionRequested(payload) {
     parsed.sessionId = await resolveActiveSessionIdFromStatus(trackId);
   }
   if (!parsed.trackId || parsed.trackId !== trackId) return;
-  await startRequestedSession(parsed);
+  if (requestBootstrapInFlight) {
+    return;
+  }
+  requestBootstrapInFlight = true;
+  try {
+    await startRequestedSession(parsed);
+  } finally {
+    requestBootstrapInFlight = false;
+  }
   // Some backends send the initial offer embedded in session-requested event.
   if (parsed.signalType === 'offer' && parsed.sdp) {
     console.log('ScreenShareService: embedded offer found in session-requested', {
@@ -386,6 +418,7 @@ async function handleSessionRequested(payload) {
     }).catch((e) => {
       console.warn('ScreenShareService: embedded offer process failed', e?.message || e);
     });
+    clearWaitingOfferTimer();
   }
 }
 
@@ -428,12 +461,51 @@ async function handleSignal(payload) {
       sessionId: parsed.sessionId,
       senderType: sender || 'unknown',
     });
-    await startRequestedSession({
+    if (!requestBootstrapInFlight) {
+      requestBootstrapInFlight = true;
+      try {
+        await startRequestedSession({
+          trackId: parsed.trackId,
+          sessionId: parsed.sessionId,
+          mediaType: parsed.mediaType,
+          intervalMs: parsed.intervalMs,
+        });
+      } finally {
+        requestBootstrapInFlight = false;
+      }
+    }
+  }
+  if (
+    parsed.signalType === 'offer' &&
+    matchesActiveSession(parsed.trackId, parsed.sessionId) &&
+    activeState === SCREEN_SHARE_STATES.PREPARING_MEDIA
+  ) {
+    pendingEarlyOffer = {
+      ...parsed,
+      signalType: 'offer',
+      senderType: sender || 'parent',
+      sessionId: parsed.sessionId || activeSession?.sessionId || '',
+      trackId: parsed.trackId || activeSession?.trackId || '',
+    };
+    console.log('ScreenShareService: queued early offer while preparing media', {
+      trackId: pendingEarlyOffer.trackId,
+      sessionId: pendingEarlyOffer.sessionId,
+    });
+    return;
+  }
+  if (
+    parsed.signalType === 'offer' &&
+    matchesActiveSession(parsed.trackId, parsed.sessionId) &&
+    [SCREEN_SHARE_STATES.ANSWERING, SCREEN_SHARE_STATES.CONNECTING, SCREEN_SHARE_STATES.CONNECTED].includes(
+      activeState,
+    )
+  ) {
+    console.log('ScreenShareService: duplicate offer ignored (already processed)', {
       trackId: parsed.trackId,
       sessionId: parsed.sessionId,
-      mediaType: parsed.mediaType,
-      intervalMs: parsed.intervalMs,
+      state: activeState,
     });
+    return;
   }
   if (!matchesActiveSession(parsed.trackId, parsed.sessionId)) return;
   if (sender && sender !== 'parent') {
@@ -448,6 +520,9 @@ async function handleSignal(payload) {
     ...parsed,
     sessionId: parsed.sessionId || activeSession?.sessionId || '',
   });
+  if (parsed.signalType === 'offer') {
+    clearWaitingOfferTimer();
+  }
 }
 
 async function handleSessionStopped(payload) {
@@ -536,7 +611,7 @@ async function ensureRealtimeSubscription() {
         console.warn('ScreenShareService: subscription error', { channel: name, eventName, err });
       });
       channel.bind(eventName, async (payload) => {
-        const dedupKey = `${name}|${buildEventKey(eventName, payload)}`;
+        const dedupKey = buildEventKey(eventName, payload);
         if (seenEventKeys.has(dedupKey)) return;
         seenEventKeys.add(dedupKey);
         if (seenEventKeys.size > 400) {
@@ -564,7 +639,16 @@ function normalizeIntervalMs(intervalMs) {
 async function resolveTrackId(overrideTrackId) {
   const direct = String(overrideTrackId || '').trim();
   if (direct) return direct;
-  return String((await AsyncStorage.getItem('trackid')) || '').trim();
+  const candidates = [
+    await AsyncStorage.getItem('trackid'),
+    await AsyncStorage.getItem('trackId'),
+    await AsyncStorage.getItem('childTrackId'),
+  ];
+  for (const value of candidates) {
+    const normalized = String(value || '').trim();
+    if (normalized) return normalized;
+  }
+  return '';
 }
 
 async function syncScreenShareState(trackId, active, intervalMs) {
@@ -704,6 +788,34 @@ async function runtimeTick() {
           mediaType: 'screen',
           intervalMs: state?.intervalMs || 2500,
         });
+      } else {
+        // If realtime/session-request was missed, recover directly from latest offer.
+        const latestOffer = await resolveLatestOfferFromBackend(localTrackId);
+        if (latestOffer?.sessionId && latestOffer?.sdp) {
+          console.log('ScreenShareService: recovering session from latest-offer fallback', {
+            trackId: localTrackId,
+            sessionId: latestOffer.sessionId,
+          });
+          await startRequestedSession({
+            trackId: localTrackId,
+            sessionId: latestOffer.sessionId,
+            mediaType: latestOffer.mediaType || 'screen',
+            intervalMs: state?.intervalMs || latestOffer.intervalMs || 2500,
+          });
+          await processWebRTCSignal({
+            ...latestOffer,
+            signalType: 'offer',
+            senderType: latestOffer.senderType || 'parent',
+            trackId: latestOffer.trackId || localTrackId,
+            sessionId: latestOffer.sessionId,
+            sdp: latestOffer.sdp,
+          }).catch((e) => {
+            console.warn(
+              'ScreenShareService: latest-offer recovery apply failed',
+              e?.message || e,
+            );
+          });
+        }
       }
     }
     if (!state?.active && activeSession) {
@@ -734,9 +846,8 @@ export function initScreenShareRuntime() {
       runtimeTick();
       return;
     }
-    if (activeSession) {
-      stopActiveSession('app-backgrounded', { notifyBackend: true }).catch(() => {});
-    }
+    // Keep active screen-share alive when app is backgrounded.
+    // Parent is monitoring the kid device while kid uses other apps.
   });
   runtimeTick();
   return () => {

@@ -4,10 +4,12 @@
   "private": true,
   "scripts": {
     "android": "react-native run-android",
+    "android:8081": "react-native run-android --port 8081",
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "postinstall": "patch-package",
     "start": "react-native start",
+    "start:8081": "react-native start --port 8081",
     "test": "jest"
   },
   "dependencies": {
