@@ -25,9 +25,12 @@ import { getPending as getPendingCameraCapture, clearPending as clearPendingCame
 import { uploadCameraPhoto } from '../../services/CameraPhotoService'
 import { debugStartForegroundService, debugStopForegroundService } from '../../services/ForegroundServiceManager'
 import { isAccessibilityEnabled, openAccessibilitySettings, hasUsageAccess, openUsageAccessSettings } from '../../services/AccessibilityServiceBridge'
+import { getScreenShareState, startScreenShare, stopScreenShare } from '../../services/ScreenShareService'
+import { getScreenShareRuntimeState } from '../../services/ScreenShareService'
+import { getWebRTCScreenShareLogs } from '../../services/ScreenShareWebRTC'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
 
-const { ScreenLock } = NativeModules
+const { ScreenLock, ScreenCaptureModule } = NativeModules
 
 const Permission = ({ navigation }) => {
 
@@ -47,11 +50,16 @@ const Permission = ({ navigation }) => {
     usageReport: false,
     keepBackground: false,
     superBattery: false,
+    /** Android: MediaProjection screen-capture consent for parent screen view / casting */
+    screenCasting: Platform.OS !== 'android',
   })
   const [cameraError, setCameraError] = useState(false)
   const [cameraReady, setCameraReady] = useState(false)
   const [activeCameraType, setActiveCameraType] = useState('front')
   const [pendingCapture, setPendingCapture] = useState(null)
+  const [screenShareStatus, setScreenShareStatus] = useState('idle')
+  const [screenShareRuntime, setScreenShareRuntime] = useState(null)
+  const [screenShareLogs, setScreenShareLogs] = useState([])
   const isCapturingRef = useRef(false)
   const captureResolveRef = useRef(null)
 
@@ -194,6 +202,17 @@ const Permission = ({ navigation }) => {
         Linking.openSettings()
         break
 
+      case "screenCasting": {
+        if (Platform.OS !== 'android' || !ScreenCaptureModule?.requestScreenCaptureConsent) break
+        try {
+          const granted = await ScreenCaptureModule.requestScreenCaptureConsent()
+          updatePermission(key, Boolean(granted))
+        } catch (e) {
+          console.warn('Screen capture consent failed', e)
+        }
+        break
+      }
+
       default:
         break
     }
@@ -221,6 +240,17 @@ const Permission = ({ navigation }) => {
     )
     updatePermission("accessibilityService", Boolean(accEnabled))
     updatePermission("usageReport", Boolean(usageAccess))
+
+    if (Platform.OS === 'android' && ScreenCaptureModule?.hasScreenCaptureConsent) {
+      try {
+        const casting = await ScreenCaptureModule.hasScreenCaptureConsent()
+        updatePermission("screenCasting", Boolean(casting))
+      } catch (e) {
+        console.warn('hasScreenCaptureConsent failed', e)
+      }
+    } else if (Platform.OS !== 'android') {
+      updatePermission("screenCasting", true)
+    }
   }
 
   /* ================= EFFECTS ================= */
@@ -265,6 +295,20 @@ const Permission = ({ navigation }) => {
       if (state === "active") recheckPermissions()
     })
     return () => sub.remove()
+  }, [])
+
+  useEffect(() => {
+    const updateDebug = () => {
+      try {
+        setScreenShareRuntime(getScreenShareRuntimeState())
+        if (__DEV__) {
+          setScreenShareLogs(getWebRTCScreenShareLogs(12))
+        }
+      } catch {}
+    }
+    updateDebug()
+    const timer = setInterval(updateDebug, 1000)
+    return () => clearInterval(timer)
   }, [])
 
   const allAllowed = Object.values(permissions).every(v => v === true)
@@ -340,6 +384,74 @@ const Permission = ({ navigation }) => {
     }
   }
 
+  const handleScreenShareServiceOnlyTest = async () => {
+    try {
+      setScreenShareStatus('starting-service-only...')
+      const result = await startScreenShare({ skipTransport: true, intervalMs: 2500 })
+      setScreenShareStatus(`service-only active (${result?.trackId || 'no-track'})`)
+      Alert.alert('Screen share test', 'Service-only screen share started (no WebRTC transport).')
+    } catch (e) {
+      setScreenShareStatus(`error: ${e?.message || 'unknown'}`)
+      Alert.alert('Screen share test failed', e?.message || 'Could not start service-only test')
+    }
+  }
+
+  const handleScreenShareFullTest = async () => {
+    try {
+      setScreenShareStatus('starting-full-session...')
+      const result = await startScreenShare({ intervalMs: 2500 })
+      setScreenShareStatus(`full session active (${result?.trackId || 'no-track'})`)
+      Alert.alert('Screen share test', 'Full session started. This requires signaling/parent side to connect.')
+    } catch (e) {
+      const msg = String(e?.message || 'Could not start full screen share session')
+      if (msg.toLowerCase().includes('signaling socket')) {
+        try {
+          const fallback = await startScreenShare({ skipTransport: true, intervalMs: 2500 })
+          setScreenShareStatus(`service-only active (${fallback?.trackId || 'no-track'})`)
+          Alert.alert(
+            'Full session unavailable',
+            'Signaling/parent is not connected yet. Started service-only mode so you can test kid app flow now.',
+          )
+          return
+        } catch (fallbackErr) {
+          setScreenShareStatus(`error: ${fallbackErr?.message || msg}`)
+          Alert.alert(
+            'Screen share test failed',
+            fallbackErr?.message || 'Full and service-only modes both failed',
+          )
+          return
+        }
+      }
+      setScreenShareStatus(`error: ${msg}`)
+      Alert.alert('Full session failed', msg)
+    }
+  }
+
+  const handleScreenShareStopTest = async () => {
+    try {
+      await stopScreenShare()
+      setScreenShareStatus('stopped')
+      Alert.alert('Screen share test', 'Screen share stopped.')
+    } catch (e) {
+      setScreenShareStatus(`error: ${e?.message || 'unknown'}`)
+      Alert.alert('Stop failed', e?.message || 'Could not stop screen share')
+    }
+  }
+
+  const handleScreenShareStatusTest = async () => {
+    try {
+      const state = await getScreenShareState()
+      const label = state?.active
+        ? `active | trackId=${state?.trackId || ''} | interval=${state?.intervalMs || 0}`
+        : 'inactive'
+      setScreenShareStatus(label)
+      Alert.alert('Screen share status', label)
+    } catch (e) {
+      setScreenShareStatus(`error: ${e?.message || 'unknown'}`)
+      Alert.alert('Status failed', e?.message || 'Could not fetch screen share state')
+    }
+  }
+
   /* ================= UI ITEM ================= */
 
   const PermissionItem = ({ title, subtitle, permissionKey, iconName }) => (
@@ -408,6 +520,28 @@ const Permission = ({ navigation }) => {
 
         <ScrollView>
           <View style={styles.permissionsList}>
+            <View style={styles.runtimeIndicatorCard}>
+              <View style={styles.runtimeIndicatorHeader}>
+                <Text style={styles.runtimeIndicatorTitle}>Live Screen Runtime</Text>
+                <View
+                  style={[
+                    styles.runtimeIndicatorDot,
+                    screenShareRuntime?.state === 'connected'
+                      ? styles.runtimeIndicatorConnected
+                      : styles.runtimeIndicatorIdle,
+                  ]}
+                />
+              </View>
+              <Text style={styles.runtimeIndicatorLine}>
+                state: {screenShareRuntime?.state || 'idle'}
+              </Text>
+              <Text style={styles.runtimeIndicatorLine}>
+                session: {screenShareRuntime?.sessionId || '-'}
+              </Text>
+              <Text style={styles.runtimeIndicatorLine}>
+                peer: {screenShareRuntime?.webrtc?.peerState || 'none'}
+              </Text>
+            </View>
             {__DEV__ ? (
               <View style={styles.debugInlineContainer}>
                 <View style={styles.debugButtonsRow}>
@@ -418,11 +552,55 @@ const Permission = ({ navigation }) => {
                     <Text style={styles.debugButtonText}>Stop Service</Text>
                   </TouchableOpacity>
                 </View>
+                <View style={styles.debugButtonsRow}>
+                  <TouchableOpacity style={styles.debugButtonPrimary} onPress={handleScreenShareServiceOnlyTest}>
+                    <Text style={styles.debugButtonText}>Start Screen Share (Service-only)</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.debugButtonSecondary} onPress={handleScreenShareFullTest}>
+                    <Text style={styles.debugButtonText}>Start Screen Share (Full)</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.debugButtonsRow}>
+                  <TouchableOpacity style={styles.debugButtonSecondary} onPress={handleScreenShareStopTest}>
+                    <Text style={styles.debugButtonText}>Stop Screen Share</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.debugButtonNeutral} onPress={handleScreenShareStatusTest}>
+                    <Text style={styles.debugButtonText}>Get Screen Share Status</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.debugStatusText}>ScreenShare Debug: {screenShareStatus}</Text>
+                <View style={styles.webrtcDebugPanel}>
+                  <Text style={styles.webrtcDebugTitle}>WebRTC Runtime</Text>
+                  <Text style={styles.webrtcDebugLine}>state: {screenShareRuntime?.state || '-'}</Text>
+                  <Text style={styles.webrtcDebugLine}>sessionId: {screenShareRuntime?.sessionId || '-'}</Text>
+                  <Text style={styles.webrtcDebugLine}>peer: {screenShareRuntime?.webrtc?.peerState || 'none'}</Text>
+                  <Text style={styles.webrtcDebugLine}>
+                    ice sent/recv: {screenShareRuntime?.webrtc?.iceSentCount || 0}/{screenShareRuntime?.webrtc?.iceReceivedCount || 0}
+                  </Text>
+                  <Text style={styles.webrtcDebugTitle}>Recent WebRTC Logs</Text>
+                  {screenShareLogs.length === 0 ? (
+                    <Text style={styles.webrtcDebugLine}>No logs yet</Text>
+                  ) : (
+                    screenShareLogs.map((item, idx) => (
+                      <Text key={`${item.at}-${idx}`} style={styles.webrtcDebugLogLine}>
+                        [{String(item.at || '').slice(11, 19)}] {item.message}
+                      </Text>
+                    ))
+                  )}
+                </View>
               </View>
             ) : null}
             <PermissionItem title="Accessibility Service" subtitle="Enable KTO Kids monitoring service" permissionKey="accessibilityService" iconName="human" />
             <PermissionItem title="Usage Limits" subtitle="Control screen & app time" permissionKey="usageLimits" iconName="timer-outline" />
             <PermissionItem title="Display Over Apps" subtitle="Show alerts over apps" permissionKey="displayOverApps" iconName="layers-outline" />
+            {Platform.OS === 'android' ? (
+              <PermissionItem
+                title="Screen casting"
+                subtitle="Allow screen capture so a parent can view the device screen"
+                permissionKey="screenCasting"
+                iconName="cast"
+              />
+            ) : null}
             <PermissionItem title="Remote Camera" subtitle="Allow photo capture" permissionKey="remoteCamera" iconName="camera-outline" />
             <PermissionItem title="One-Way Audio" subtitle="Allow microphone access" permissionKey="oneWayAudio" iconName="microphone-outline" />
             <PermissionItem title="Live Location" subtitle="Track device location" permissionKey="liveLocation" iconName="map-marker-outline" />
@@ -472,8 +650,70 @@ const styles = StyleSheet.create({
   headerSubtext: { fontSize: 14, color: "#6B7280" },
 
   permissionsList: { padding: 16, paddingBottom: 120 },
+  runtimeIndicatorCard: {
+    backgroundColor: '#0F172A',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+  runtimeIndicatorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  runtimeIndicatorTitle: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  runtimeIndicatorDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  runtimeIndicatorConnected: {
+    backgroundColor: '#10B981',
+  },
+  runtimeIndicatorIdle: {
+    backgroundColor: '#F59E0B',
+  },
+  runtimeIndicatorLine: {
+    color: '#CBD5E1',
+    fontSize: 12,
+    marginBottom: 2,
+  },
   debugInlineContainer: {
     marginBottom: 12,
+  },
+  debugStatusText: {
+    marginTop: 8,
+    marginBottom: 8,
+    fontSize: 12,
+    color: '#111827',
+    fontWeight: '600',
+  },
+  webrtcDebugPanel: {
+    backgroundColor: '#111827',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+  },
+  webrtcDebugTitle: {
+    color: '#F9FAFB',
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  webrtcDebugLine: {
+    color: '#D1D5DB',
+    fontSize: 11,
+    marginBottom: 2,
+  },
+  webrtcDebugLogLine: {
+    color: '#93C5FD',
+    fontSize: 10,
+    marginBottom: 2,
   },
   permissionItem: {
     flexDirection: "row", justifyContent: "space-between",

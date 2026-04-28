@@ -33,8 +33,21 @@ import { getViewShotCapture } from './ScreenshotCaptureRegistry';
 import { getCameraCaptureHandler } from './CameraCaptureRegistry';
 import { setPending as setPendingCameraCapture } from './PendingCameraCaptureManager';
 import { syncLocationNow } from './LocationSyncService';
+import { getScreenShareState, startScreenShare, stopScreenShare } from './ScreenShareService';
 
 const { ScreenshotModule, ScreenLock } = NativeModules;
+
+function normalizeCommandName(rawCommand) {
+  return String(rawCommand || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_');
+}
+
+function getIncomingCommand(data = {}) {
+  const direct = data?.command ?? data?.action ?? data?.type ?? '';
+  return normalizeCommandName(direct);
+}
 
 function getCommandId(remoteMessage) {
   const data = remoteMessage?.data || {};
@@ -230,6 +243,58 @@ async function handleLocationRequest(data, options = {}) {
   }
 }
 
+async function handleStartScreenShare(data, options = {}) {
+  const { isBackground = false } = options;
+  try {
+    const intervalMs = Number(data?.intervalMs ?? data?.interval ?? 2500);
+    const trackId = String(data?.trackId || '').trim() || undefined;
+    const sessionId = String(data?.sessionId || data?.callId || '').trim() || undefined;
+    const signalingUrl = String(data?.signalingUrl || data?.wsUrl || '').trim() || undefined;
+    const result = await startScreenShare({ trackId, intervalMs, sessionId, signalingUrl });
+    console.log('FCMCommandHandler: screen share started', result);
+    if (!isBackground && Alert?.alert) {
+      Alert.alert('Notice', 'Parent screen sharing started.');
+    }
+  } catch (e) {
+    console.error('FCMCommandHandler: start screen share failed', e);
+    if (!isBackground && Alert?.alert) {
+      Alert.alert('Screen share error', e?.message || 'Could not start screen sharing');
+    }
+  }
+}
+
+async function handleStopScreenShare(data, options = {}) {
+  const { isBackground = false } = options;
+  try {
+    const trackId = String(data?.trackId || '').trim() || undefined;
+    await stopScreenShare({ trackId });
+    console.log('FCMCommandHandler: screen share stopped');
+    if (!isBackground && Alert?.alert) {
+      Alert.alert('Notice', 'Parent screen sharing stopped.');
+    }
+  } catch (e) {
+    console.error('FCMCommandHandler: stop screen share failed', e);
+    if (!isBackground && Alert?.alert) {
+      Alert.alert('Screen share error', e?.message || 'Could not stop screen sharing');
+    }
+  }
+}
+
+async function handleScreenShareStateRequest(data, options = {}) {
+  const { isBackground = false } = options;
+  try {
+    const trackId = String(data?.trackId || '').trim() || undefined;
+    const state = await getScreenShareState({ trackId });
+    console.log('FCMCommandHandler: screen share state', state);
+    if (!isBackground && Alert?.alert) {
+      const status = state?.active ? 'active' : 'inactive';
+      Alert.alert('Screen share status', `Current screen sharing is ${status}.`);
+    }
+  } catch (e) {
+    console.error('FCMCommandHandler: get screen share state failed', e);
+  }
+}
+
 function parseCameraType(data) {
   let cameraType = 'front';
   try {
@@ -353,6 +418,21 @@ async function handleScreenshot(data, options = {}) {
   }
 }
 
+async function hasScreenCaptureConsent() {
+  try {
+    const mod = NativeModules?.ScreenCaptureModule;
+    if (!mod?.hasScreenCaptureConsent) {
+      // If module is unavailable, keep backward compatibility.
+      return true;
+    }
+    const granted = await mod.hasScreenCaptureConsent();
+    return Boolean(granted);
+  } catch (e) {
+    console.warn('FCMCommandHandler: failed to check screen capture consent', e);
+    return false;
+  }
+}
+
 function handleLock(data, options = {}) {
   const { isBackground = false } = options;
 
@@ -378,7 +458,7 @@ function handleLock(data, options = {}) {
 export function handleFCMCommand(remoteMessage, options = {}) {
   const { isBackground = false } = options;
   const data = remoteMessage?.data || {};
-  const { command } = data;
+  const command = getIncomingCommand(data);
   if (!command) return;
 
   return (async () => {
@@ -394,8 +474,22 @@ export function handleFCMCommand(remoteMessage, options = {}) {
     console.log('FCM command:', command, commandId ? `(id=${commandId})` : '');
 
     switch (command) {
-      case 'SCREENSHOT':
+      case 'SCREENSHOT': {
+        const consentGranted = await hasScreenCaptureConsent();
+        if (!consentGranted) {
+          console.warn('FCMCommandHandler: SCREENSHOT blocked - screen capture consent missing');
+          if (isBackground) {
+            showScreenshotRequestNotification().catch(() => {});
+          } else if (Alert?.alert) {
+            Alert.alert(
+              'Screen capture permission needed',
+              'Open Permissions and enable Screen casting before parent screenshot requests can run.',
+            );
+          }
+          return;
+        }
         return handleScreenshot(data, { isBackground });
+      }
       case 'LOCK':
         return handleLock(data, { isBackground });
       case 'CAPTURE_CAMERA':
@@ -418,6 +512,23 @@ export function handleFCMCommand(remoteMessage, options = {}) {
       case 'LOCATION_SNAPSHOT':
       case 'SEND_LOCATION':
         return handleLocationRequest(data, { isBackground });
+      case 'START_SCREEN_SHARE':
+      case 'SCREEN_SHARE_START':
+      case 'START_SCREENSHARE':
+      case 'SCREENSHARE_START':
+      case 'START_LIVE_SCREEN':
+        return handleStartScreenShare(data, { isBackground });
+      case 'STOP_SCREEN_SHARE':
+      case 'SCREEN_SHARE_STOP':
+      case 'STOP_SCREENSHARE':
+      case 'SCREENSHARE_STOP':
+      case 'STOP_LIVE_SCREEN':
+        return handleStopScreenShare(data, { isBackground });
+      case 'GET_SCREEN_SHARE':
+      case 'SCREEN_SHARE_STATUS':
+      case 'GET_SCREENSHARE':
+      case 'SCREENSHARE_STATUS':
+        return handleScreenShareStateRequest(data, { isBackground });
       default:
         console.log('Unhandled command:', command);
     }

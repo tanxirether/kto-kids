@@ -1,8 +1,8 @@
 import React, { useRef, useEffect } from "react";
-import { AppState } from "react-native";
+import { AppState, Dimensions, StatusBar, View } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { NavigationContainer } from "@react-navigation/native";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { DefaultTheme, NavigationContainer } from "@react-navigation/native";
+import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import ViewShot from "react-native-view-shot";
 import notifee, { EventType } from "@notifee/react-native";
 import { getMessaging, onMessage } from "@react-native-firebase/messaging";
@@ -26,8 +26,27 @@ import { startPolicySync } from "./services/PolicySync";
 import { startLocationSync } from "./services/LocationSyncService";
 import { sendFamilyActivityAlert } from "./services/FamilyAlertNotification";
 import { recordKeywordActivityContext } from "./services/MonitoringSnapshotService";
+import { configureScreenShareRealtime, initScreenShareRuntime } from "./services/ScreenShareService";
 
 const Stack = createNativeStackNavigator();
+
+/** Opaque backgrounds — transparent navigator + native stack defaults can look “blank” on Android. */
+const navigationTheme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    background: "#ffffff",
+    card: "#ffffff",
+  },
+};
+
+const { width: initialWindowW, height: initialWindowH } = Dimensions.get("window");
+/** Ensures SafeAreaProvider always has insets on first paint (otherwise it renders null until native fires). */
+const safeAreaInitialMetrics =
+  initialWindowMetrics ?? {
+    frame: { x: 0, y: 0, width: initialWindowW, height: initialWindowH },
+    insets: { top: 0, left: 0, right: 0, bottom: 0 },
+  };
 
 export default function App() {
   const viewShotRef = useRef(null);
@@ -82,6 +101,20 @@ export default function App() {
 
   useEffect(() => {
     const stop = startLocationSync();
+    return () => stop?.();
+  }, []);
+
+  useEffect(() => {
+    configureScreenShareRealtime({
+      key: "deca346055651392a9a6",
+      cluster: "ap4",
+      forceTLS: true,
+      enabledTransports: ["ws", "wss"],
+    });
+  }, []);
+
+  useEffect(() => {
+    const stop = initScreenShareRuntime();
     return () => stop?.();
   }, []);
 
@@ -143,28 +176,42 @@ export default function App() {
   }, []);
 
   return (
-    <ViewShot ref={viewShotRef} options={{ format: "jpg", quality: 0.9 }} style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <NavigationContainer
-          ref={navigationRef}
-          onReady={() => {
-            navReadyRef.current = true;
-            restorePendingFromStorage().then((pending) => {
-              if (pending && navigationRef.current) {
-                navigationRef.current.navigate("Permission");
-              }
-            });
-          }}
-        >
-          <Stack.Navigator screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="Onboarding" component={Onboarding} />
+    <ViewShot
+      ref={viewShotRef}
+      options={{ format: "jpg", quality: 0.9 }}
+      style={{ flex: 1, backgroundColor: "#ffffff" }}
+    >
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <SafeAreaProvider style={{ flex: 1 }} initialMetrics={safeAreaInitialMetrics}>
+        <View style={{ flex: 1, backgroundColor: "#ffffff" }}>
+          <NavigationContainer
+            ref={navigationRef}
+            theme={navigationTheme}
+            onReady={() => {
+              navReadyRef.current = true;
+              restorePendingFromStorage().then((pending) => {
+                if (pending && navigationRef.current) {
+                  navigationRef.current.navigate("Permission");
+                }
+              });
+            }}
+          >
+            <Stack.Navigator
+              screenOptions={{
+                headerShown: false,
+                animation: "default",
+                contentStyle: { flex: 1, backgroundColor: "#ffffff" },
+              }}
+            >
+              <Stack.Screen name="Onboarding" component={Onboarding} />
             <Stack.Screen name="WhoseDevices" component={WhoseDevices} />
             <Stack.Screen name="QRCodeScreen" component={QRCodeScreen} />
             <Stack.Screen name="ConnectedScreen" component={ConnectedScreen} />
             <Stack.Screen name="Permission" component={Permission} />
             <Stack.Screen name="UsageDebug" component={UsageDebug} />
-          </Stack.Navigator>
-        </NavigationContainer>
+            </Stack.Navigator>
+          </NavigationContainer>
+        </View>
       </SafeAreaProvider>
     </ViewShot>
   );
