@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from "react";
-import { AppState, Dimensions, StatusBar, View } from "react-native";
+import { AppState, StatusBar, View } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { DefaultTheme, NavigationContainer } from "@react-navigation/native";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
@@ -39,14 +39,6 @@ const navigationTheme = {
     card: "#ffffff",
   },
 };
-
-const { width: initialWindowW, height: initialWindowH } = Dimensions.get("window");
-/** Ensures SafeAreaProvider always has insets on first paint (otherwise it renders null until native fires). */
-const safeAreaInitialMetrics =
-  initialWindowMetrics ?? {
-    frame: { x: 0, y: 0, width: initialWindowW, height: initialWindowH },
-    insets: { top: 0, left: 0, right: 0, bottom: 0 },
-  };
 
 export default function App() {
   const viewShotRef = useRef(null);
@@ -182,7 +174,7 @@ export default function App() {
       style={{ flex: 1, backgroundColor: "#ffffff" }}
     >
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-      <SafeAreaProvider style={{ flex: 1 }} initialMetrics={safeAreaInitialMetrics}>
+      <SafeAreaProvider style={{ flex: 1 }} initialMetrics={initialWindowMetrics}>
         <View style={{ flex: 1, backgroundColor: "#ffffff" }}>
           <NavigationContainer
             ref={navigationRef}

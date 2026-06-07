@@ -1,7 +1,6 @@
 import { NativeModules, Platform } from 'react-native';
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Pusher from 'pusher-js/react-native';
 import instance from '../api/api_instance';
 import {
   startWebRTCScreenShareSession,
@@ -45,7 +44,25 @@ let remoteRevisionSeen = '';
 let pusherConfigOverride = null;
 let requestBootstrapInFlight = false;
 let pendingEarlyOffer = null;
-const PusherClientCtor = Pusher?.Pusher || Pusher;
+let PusherClientCtor = null;
+let pusherLoadError = null;
+
+function getPusherClientCtor() {
+  if (PusherClientCtor) return PusherClientCtor;
+  if (pusherLoadError) return null;
+  try {
+    const Pusher = require('pusher-js/react-native');
+    PusherClientCtor = Pusher?.Pusher || Pusher;
+    return PusherClientCtor;
+  } catch (e) {
+    pusherLoadError = e;
+    console.warn(
+      'ScreenShareService: Pusher unavailable (rebuild the app after installing native deps)',
+      e?.message || e,
+    );
+    return null;
+  }
+}
 const STATUS_SESSION_CACHE_TTL_MS = 10000;
 const statusSessionCache = new Map();
 let statusSessionFetchBlockedUntilMs = 0;
@@ -586,10 +603,11 @@ async function ensureRealtimeSubscription() {
   realtimeChannels = new Map();
 
   if (!realtimeClient) {
-    if (typeof PusherClientCtor !== 'function') {
+    const PusherCtor = getPusherClientCtor();
+    if (typeof PusherCtor !== 'function') {
       throw new Error('Pusher client constructor is unavailable');
     }
-    realtimeClient = new PusherClientCtor(cfg.key, {
+    realtimeClient = new PusherCtor(cfg.key, {
       cluster: cfg.cluster,
       wsHost: cfg.wsHost,
       wsPort: cfg.wsPort,

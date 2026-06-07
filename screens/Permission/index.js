@@ -14,7 +14,7 @@ import {
   Alert,
   Platform,
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { check, PERMISSIONS, RESULTS } from 'react-native-permissions'
 import { Camera, useCameraDevice, useCameraFormat } from 'react-native-vision-camera'
 import ViewShot from 'react-native-view-shot'
@@ -33,7 +33,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 const { ScreenLock, ScreenCaptureModule } = NativeModules
 
 const Permission = ({ navigation }) => {
-
+  const insets = useSafeAreaInsets()
   const cameraRef = useRef(null)
   const frontDevice = useCameraDevice('front')
   const backDevice = useCameraDevice('back')
@@ -478,7 +478,7 @@ const Permission = ({ navigation }) => {
 
   return (
     <ViewShot ref={viewShotRef} options={{ format: "jpg", quality: 0.9 }} style={{ flex: 1 }}>
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         {/* Hidden Camera for remote capture (omit when restricted by OS/device policy) */}
         {permissions.remoteCamera && device && !cameraError && (
           <Camera
@@ -518,7 +518,7 @@ const Permission = ({ navigation }) => {
           </Text>
         </View>
 
-        <ScrollView>
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           <View style={styles.permissionsList}>
             <View style={styles.runtimeIndicatorCard}>
               <View style={styles.runtimeIndicatorHeader}>
@@ -610,8 +610,8 @@ const Permission = ({ navigation }) => {
           </View>
         </ScrollView>
 
-        {/* Confirm */}
-        <View style={styles.buttonContainer}>
+        {/* Confirm — flex footer (not absolute) so safe-area bottom inset applies */}
+        <View style={[styles.buttonContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           {__DEV__ ? (
             <TouchableOpacity style={styles.debugButtonNeutral} onPress={handleDebugLocalNotification}>
               <Text style={styles.debugButtonText}>Send Local Debug Notification</Text>
@@ -649,7 +649,9 @@ const styles = StyleSheet.create({
   headerText: { fontSize: 20, fontWeight: "700" },
   headerSubtext: { fontSize: 14, color: "#6B7280" },
 
-  permissionsList: { padding: 16, paddingBottom: 120 },
+  scroll: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
+  permissionsList: { padding: 16, paddingBottom: 8 },
   runtimeIndicatorCard: {
     backgroundColor: '#0F172A',
     borderRadius: 12,
@@ -731,8 +733,11 @@ const styles = StyleSheet.create({
   permissionSubtitle: { fontSize: 13, color: "#6B7280" },
 
   buttonContainer: {
-    position: "absolute", bottom: 0, left: 0, right: 0,
-    padding: 16, backgroundColor: "#FFF", borderTopWidth: 1, borderTopColor: "#E5E7EB"
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    backgroundColor: "#FFF",
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
   },
   debugButtonsRow: {
     flexDirection: 'row',
