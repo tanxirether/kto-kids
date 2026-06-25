@@ -29,8 +29,24 @@ import { getScreenShareState, startScreenShare, stopScreenShare } from '../../se
 import { getScreenShareRuntimeState } from '../../services/ScreenShareService'
 import { getWebRTCScreenShareLogs } from '../../services/ScreenShareWebRTC'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
+import ProminentDisclosureModal from '../../components/ProminentDisclosureModal'
+import {
+  ACCESSIBILITY_DISCLOSURE,
+  ACCESSIBILITY_DISCLOSURE_KEY,
+  DISCLOSURE_STORAGE_KEY,
+  MONITORING_DISCLOSURE,
+} from '../../constants/monitoringDisclosure'
 
 const { ScreenLock, ScreenCaptureModule } = NativeModules
+
+const SENSITIVE_PERMISSION_KEYS = new Set([
+  'accessibilityService',
+  'usageReport',
+  'screenCasting',
+  'remoteCamera',
+  'oneWayAudio',
+  'liveLocation',
+])
 
 const Permission = ({ navigation }) => {
   const insets = useSafeAreaInsets()
@@ -60,6 +76,9 @@ const Permission = ({ navigation }) => {
   const [screenShareStatus, setScreenShareStatus] = useState('idle')
   const [screenShareRuntime, setScreenShareRuntime] = useState(null)
   const [screenShareLogs, setScreenShareLogs] = useState([])
+  const [disclosureVisible, setDisclosureVisible] = useState(false)
+  const [disclosureMode, setDisclosureMode] = useState('general')
+  const [pendingPermissionKey, setPendingPermissionKey] = useState(null)
   const isCapturingRef = useRef(false)
   const captureResolveRef = useRef(null)
 
@@ -132,7 +151,7 @@ const Permission = ({ navigation }) => {
 
   /* ================= REAL PERMISSION HANDLER ================= */
 
-  const handlePermission = async (key) => {
+  const runPermissionRequest = async (key) => {
     switch (key) {
 
       case "remoteCamera": {
@@ -216,6 +235,50 @@ const Permission = ({ navigation }) => {
       default:
         break
     }
+  }
+
+  const handlePermission = async (key) => {
+    const turningOn = !permissions[key]
+    if (turningOn) {
+      if (key === 'accessibilityService') {
+        const accepted = await AsyncStorage.getItem(ACCESSIBILITY_DISCLOSURE_KEY)
+        if (accepted !== 'true') {
+          setPendingPermissionKey(key)
+          setDisclosureMode('accessibility')
+          setDisclosureVisible(true)
+          return
+        }
+      } else if (SENSITIVE_PERMISSION_KEYS.has(key)) {
+        const accepted = await AsyncStorage.getItem(DISCLOSURE_STORAGE_KEY)
+        if (accepted !== 'true') {
+          setPendingPermissionKey(key)
+          setDisclosureMode('general')
+          setDisclosureVisible(true)
+          return
+        }
+      }
+    }
+    await runPermissionRequest(key)
+  }
+
+  const handleDisclosureAccept = async () => {
+    const key = pendingPermissionKey
+    setDisclosureVisible(false)
+    setPendingPermissionKey(null)
+    if (disclosureMode === 'accessibility') {
+      await AsyncStorage.setItem(ACCESSIBILITY_DISCLOSURE_KEY, 'true')
+      await AsyncStorage.setItem(DISCLOSURE_STORAGE_KEY, 'true')
+    } else {
+      await AsyncStorage.setItem(DISCLOSURE_STORAGE_KEY, 'true')
+    }
+    if (key) {
+      await runPermissionRequest(key)
+    }
+  }
+
+  const handleDisclosureDecline = () => {
+    setDisclosureVisible(false)
+    setPendingPermissionKey(null)
   }
 
   /* ================= RECHECK PERMISSIONS ================= */
@@ -514,7 +577,7 @@ const Permission = ({ navigation }) => {
           <Text style={styles.headerIcon}>🔒</Text>
           <Text style={styles.headerText}>App Permissions</Text>
           <Text style={styles.headerSubtext}>
-            All permissions must be enabled to continue
+            Parental monitoring permissions — review the disclosure before enabling each feature
           </Text>
         </View>
 
@@ -590,7 +653,7 @@ const Permission = ({ navigation }) => {
                 </View>
               </View>
             ) : null}
-            <PermissionItem title="Accessibility Service" subtitle="Enable KTO Kids monitoring service" permissionKey="accessibilityService" iconName="human" />
+            <PermissionItem title="Accessibility Service" subtitle="Foreground apps, usage time & keyword alerts (Accessibility API)" permissionKey="accessibilityService" iconName="human" />
             <PermissionItem title="Usage Limits" subtitle="Control screen & app time" permissionKey="usageLimits" iconName="timer-outline" />
             <PermissionItem title="Display Over Apps" subtitle="Show alerts over apps" permissionKey="displayOverApps" iconName="layers-outline" />
             {Platform.OS === 'android' ? (
@@ -626,6 +689,27 @@ const Permission = ({ navigation }) => {
           </TouchableOpacity>
         </View>
       </SafeAreaView>
+
+      <ProminentDisclosureModal
+        visible={disclosureVisible}
+        title={
+          disclosureMode === 'accessibility'
+            ? ACCESSIBILITY_DISCLOSURE.title
+            : MONITORING_DISCLOSURE.title
+        }
+        sections={
+          disclosureMode === 'accessibility'
+            ? ACCESSIBILITY_DISCLOSURE.sections
+            : MONITORING_DISCLOSURE.sections
+        }
+        checkboxLabel={
+          disclosureMode === 'accessibility'
+            ? ACCESSIBILITY_DISCLOSURE.checkboxLabel
+            : MONITORING_DISCLOSURE.checkboxLabel
+        }
+        onDecline={handleDisclosureDecline}
+        onAccept={handleDisclosureAccept}
+      />
     </ViewShot>
   )
 }

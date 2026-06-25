@@ -26,6 +26,16 @@
       android:theme="@style/AppTheme"
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:supportsRtl="true">
+      <!-- Required for Google Play monitoring / parental-control apps -->
+      <meta-data
+        android:name="android.app.is_monitoring_tool"
+        android:value="true" />
+      <meta-data
+        android:name="android.app.isMonitoringTool"
+        android:value="true" />
+      <property
+        android:name="android.app.PROPERTY_IS_MONITORING_TOOL"
+        android:value="true" />
       <activity
         android:name=".BlockedAppActivity"
         android:exported="false"

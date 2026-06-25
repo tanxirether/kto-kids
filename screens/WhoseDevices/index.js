@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -9,11 +10,18 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ProminentDisclosureModal from '../../components/ProminentDisclosureModal';
+import {
+  DISCLOSURE_STORAGE_KEY,
+  MONITORING_DISCLOSURE,
+} from '../../constants/monitoringDisclosure';
 
 const WhoseDevices = () => {
   const { width, height } = Dimensions.get("window");
   const navigation = useNavigation();
-  const handlePressParents = async () => {
+  const [showDisclosure, setShowDisclosure] = useState(false);
+
+  const continueKidsFlow = async () => {
     try {
       const trackId = await AsyncStorage.getItem('trackid');
       if (trackId) {
@@ -23,7 +31,21 @@ const WhoseDevices = () => {
       }
     } catch (error) {
       console.error("Failed to get trackid from AsyncStorage", error);
-      navigation.navigate("QRCodeScreen"); // Fallback on error
+      navigation.navigate("QRCodeScreen");
+    }
+  };
+
+  const handlePressParents = async () => {
+    try {
+      const accepted = await AsyncStorage.getItem(DISCLOSURE_STORAGE_KEY);
+      if (accepted === 'true') {
+        await continueKidsFlow();
+        return;
+      }
+      setShowDisclosure(true);
+    } catch (error) {
+      console.error("Failed to read disclosure state", error);
+      setShowDisclosure(true);
     }
   };
 
@@ -58,6 +80,19 @@ const WhoseDevices = () => {
           <Text style={styles.secondaryButtonText}>Kids’ devices</Text>
         </TouchableOpacity>
       </View>
+
+      <ProminentDisclosureModal
+        visible={showDisclosure}
+        title={MONITORING_DISCLOSURE.title}
+        sections={MONITORING_DISCLOSURE.sections}
+        checkboxLabel={MONITORING_DISCLOSURE.checkboxLabel}
+        onDecline={() => setShowDisclosure(false)}
+        onAccept={async () => {
+          await AsyncStorage.setItem(DISCLOSURE_STORAGE_KEY, 'true');
+          setShowDisclosure(false);
+          await continueKidsFlow();
+        }}
+      />
     </SafeAreaView>
   );
 }

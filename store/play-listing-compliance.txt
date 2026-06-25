@@ -1,0 +1,65 @@
+=== SHORT DESCRIPTION (max 80 characters) ===
+Parental monitoring for child devices — pairs with K.T.O Parent App.
+
+=== FULL DESCRIPTION (paste into Play Console → Main store listing) ===
+
+K.T.O Kids is the companion application for the K.T.O Parent App, designed to help parents ensure their children's digital safety and wellbeing.
+
+This app is installed on the child's device and works together with the K.T.O Parent App to provide parental monitoring and device management features.
+
+Key Features:
+• Real-time location tracking
+• Device activity monitoring
+• Screen time management
+• App usage monitoring
+• Website activity monitoring
+• Family safety and protection tools
+• Remote parental controls
+• Child device status monitoring
+
+How It Works:
+1. Install K.T.O Parent App on the parent's device.
+2. Create or sign in to your parent account.
+3. Install K.T.O Kids on the child's device.
+4. Scan the QR code from the Parent App to securely pair the devices.
+5. Grant the required permissions on the child's device.
+6. Start managing and monitoring from the Parent App.
+
+Important:
+K.T.O Kids is not a standalone application and requires pairing with the K.T.O Parent App.
+
+The application uses accessibility, usage access, location, and other device permissions solely to provide parental control and child safety features with parental consent.
+
+ACCESSIBILITY SERVICE (required disclosure)
+K.T.O Kids uses the Android Accessibility Service on the child's device when enabled by a parent or guardian. Through Accessibility, the app may access:
+• The name of the app currently in the foreground
+• App open/close events and usage duration
+• On-screen text to check for parent-configured keyword safety alerts
+
+This Accessibility data is used only for parental monitoring and child safety. It is transmitted to the linked parent account via the K.T.O Parent App and our servers. K.T.O Kids does not use Accessibility to perform unauthorized taps, purchases, or account changes on the user's behalf.
+
+USAGE ACCESS & OTHER PERMISSIONS
+When enabled with consent, the app may also use:
+• Usage access — app usage statistics and screen time reports
+• Location — real-time and background location for family safety
+• Camera & microphone — only when enabled by the parent for remote safety features
+• Screen capture / screen sharing — only after on-device consent for parent-initiated viewing
+
+DATA & CONSENT
+Before sensitive features are enabled, K.T.O Kids shows a prominent in-app disclosure on the child's device and requires explicit consent. Monitoring is intended for lawful parental supervision only, with permission from a parent or legal guardian.
+
+MONITORING TOOL DECLARATION
+K.T.O Kids is a parental monitoring application (monitoring tool) installed on a child's device. It is not designed for covert surveillance. A parent or legal guardian must pair the device and consent to monitoring features.
+
+K.T.O helps families create a safer digital environment by giving parents the tools they need to protect and guide their children online.
+
+=== PLAY CONSOLE — App content forms ===
+
+Monitoring / stalkerware declaration:
+→ Yes, this app is a monitoring tool (parental control / child device supervision).
+
+Accessibility API declaration (copy into the form):
+Purpose: Parental monitoring and child safety on a device paired with the K.T.O Parent App.
+Data accessed via Accessibility: foreground app identity, app usage duration, on-screen text for parent-configured keyword alerts.
+Who receives data: Linked parent/guardian account.
+Data is not used for advertising or sold to third parties.
