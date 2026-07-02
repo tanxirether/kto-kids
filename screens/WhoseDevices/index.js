@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -10,16 +10,11 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import ProminentDisclosureModal from '../../components/ProminentDisclosureModal';
-import {
-  DISCLOSURE_STORAGE_KEY,
-  MONITORING_DISCLOSURE,
-} from '../../constants/monitoringDisclosure';
+import { DISCLOSURE_STORAGE_KEY } from '../../constants/monitoringDisclosure';
 
 const WhoseDevices = () => {
   const { width, height } = Dimensions.get("window");
   const navigation = useNavigation();
-  const [showDisclosure, setShowDisclosure] = useState(false);
 
   const continueKidsFlow = async () => {
     try {
@@ -42,13 +37,15 @@ const WhoseDevices = () => {
         await continueKidsFlow();
         return;
       }
-      setShowDisclosure(true);
+      const trackId = await AsyncStorage.getItem('trackid');
+      navigation.navigate('MonitoringDisclosure', {
+        nextRoute: trackId ? 'ConnectedScreen' : 'QRCodeScreen',
+      });
     } catch (error) {
       console.error("Failed to read disclosure state", error);
-      setShowDisclosure(true);
+      navigation.navigate('MonitoringDisclosure', { nextRoute: 'QRCodeScreen' });
     }
   };
-
 
   return (
     <SafeAreaView style={styles.container}>
@@ -64,38 +61,19 @@ const WhoseDevices = () => {
           resizeMode="contain"
         />
         <Text style={styles.title}>Whose device used?</Text>
+        <Text style={styles.notice}>
+          K.T.O Kids is a parental monitoring app for child devices. Guardian consent is required.
+        </Text>
       </View>
-
-      {/* <View style={styles.buttonWrapper}>
-        <TouchableOpacity
-          onPress={() => navigation.navigate("Auth")}
-          style={styles.primaryButton}
-        >
-          <Text style={styles.primaryButtonText}>Parents’ devices</Text>
-        </TouchableOpacity> */}
-      {/* </View> */}
 
       <View style={styles.buttonWrapper}>
         <TouchableOpacity style={styles.secondaryButton} onPress={() => handlePressParents()}>
           <Text style={styles.secondaryButtonText}>Kids’ devices</Text>
         </TouchableOpacity>
       </View>
-
-      <ProminentDisclosureModal
-        visible={showDisclosure}
-        title={MONITORING_DISCLOSURE.title}
-        sections={MONITORING_DISCLOSURE.sections}
-        checkboxLabel={MONITORING_DISCLOSURE.checkboxLabel}
-        onDecline={() => setShowDisclosure(false)}
-        onAccept={async () => {
-          await AsyncStorage.setItem(DISCLOSURE_STORAGE_KEY, 'true');
-          setShowDisclosure(false);
-          await continueKidsFlow();
-        }}
-      />
     </SafeAreaView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -119,19 +97,16 @@ const styles = StyleSheet.create({
     marginTop: 16,
     color: "#000",
   },
+  notice: {
+    marginTop: 12,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    color: '#6B7280',
+    paddingHorizontal: 8,
+  },
   buttonWrapper: {
     marginTop: 20,
-  },
-  primaryButton: {
-    backgroundColor: "#9b1fe8",
-    paddingVertical: 12,
-    borderRadius: 50,
-  },
-  primaryButtonText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "600",
-    textAlign: "center",
   },
   secondaryButton: {
     borderColor: "#9b1fe8",

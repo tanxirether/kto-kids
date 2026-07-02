@@ -4,7 +4,6 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { DefaultTheme, NavigationContainer } from "@react-navigation/native";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import ViewShot from "react-native-view-shot";
-import notifee, { EventType } from "@notifee/react-native";
 import { getMessaging, onMessage } from "@react-native-firebase/messaging";
 import Onboarding from "./screens/onboarding";
 import WhoseDevices from "./screens/WhoseDevices";
@@ -12,6 +11,8 @@ import QRCodeScreen from "./screens/qrcode";
 import Permission from "./screens/Permission";
 import ConnectedScreen from "./screens/connected";
 import UsageDebug from "./screens/UsageDebug";
+import MonitoringDisclosure from "./screens/MonitoringDisclosure";
+import AccessibilityDisclosure from "./screens/AccessibilityDisclosure";
 import { register as registerCapture, unregister as unregisterCapture, getViewShotCapture } from "./services/ScreenshotCaptureRegistry";
 import { isPending, clearPending } from "./services/PendingScreenshotManager";
 import { restorePendingFromStorage } from "./services/PendingCameraCaptureManager";
@@ -27,10 +28,10 @@ import { startLocationSync } from "./services/LocationSyncService";
 import { sendFamilyActivityAlert } from "./services/FamilyAlertNotification";
 import { recordKeywordActivityContext } from "./services/MonitoringSnapshotService";
 import { configureScreenShareRealtime, initScreenShareRuntime } from "./services/ScreenShareService";
+import { createMonitoringGate, hasMonitoringConsent } from "./services/MonitoringConsentGate";
 
 const Stack = createNativeStackNavigator();
 
-/** Opaque backgrounds — transparent navigator + native stack defaults can look “blank” on Android. */
 const navigationTheme = {
   ...DefaultTheme,
   colors: {
@@ -44,15 +45,53 @@ export default function App() {
   const viewShotRef = useRef(null);
   const navigationRef = useRef(null);
   const navReadyRef = useRef(false);
-  const openedFromNotificationRef = useRef(false);
+  const monitoringGateRef = useRef(null);
 
   useEffect(() => {
     const captureFn = () => viewShotRef.current?.capture?.();
     registerCapture(captureFn);
-    const cleanup = initForegroundServiceManager();
+    return () => unregisterCapture();
+  }, []);
+
+  useEffect(() => {
+    monitoringGateRef.current = createMonitoringGate(() => {
+      const fgCleanup = initForegroundServiceManager();
+      const rulesCleanup = restoreMonitoringRules();
+      const eventsCleanup = subscribeMonitoringEvents({
+        onForegroundEvent: (data) => {
+          console.log("AccessibilityEventDetected", data);
+        },
+        onKeywordDetected: (data) => {
+          console.log("KeywordDetected", data);
+          recordKeywordActivityContext(data);
+          sendFamilyActivityAlert();
+        },
+      });
+      const policyStop = startPolicySync({ intervalMs: 20000 });
+      const locationStop = startLocationSync();
+      const screenShareStop = initScreenShareRuntime();
+
+      return () => {
+        fgCleanup?.();
+        rulesCleanup?.();
+        eventsCleanup?.();
+        policyStop?.();
+        locationStop?.();
+        screenShareStop?.();
+      };
+    });
+
+    monitoringGateRef.current.start();
+
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        monitoringGateRef.current?.start();
+      }
+    });
+
     return () => {
-      unregisterCapture();
-      cleanup?.();
+      sub.remove();
+      monitoringGateRef.current?.stop();
     };
   }, []);
 
@@ -68,35 +107,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    restoreMonitoringRules();
-    const cleanup = subscribeMonitoringEvents({
-      onForegroundEvent: (data) => {
-        // You can forward app-open events to backend here
-        // eslint-disable-next-line no-console
-        console.log("AccessibilityEventDetected", data);
-      },
-      onKeywordDetected: (data) => {
-        // eslint-disable-next-line no-console
-        console.log("KeywordDetected", data);
-        recordKeywordActivityContext(data);
-        sendFamilyActivityAlert();
-      },
-    });
-    return () => cleanup?.();
-  }, []);
-
-  useEffect(() => {
-    // Poll policy so Postman updates take effect without FCM.
-    const stop = startPolicySync({ intervalMs: 20000 });
-    return () => stop?.();
-  }, []);
-
-  useEffect(() => {
-    const stop = startLocationSync();
-    return () => stop?.();
-  }, []);
-
-  useEffect(() => {
     configureScreenShareRealtime({
       key: "deca346055651392a9a6",
       cluster: "ap4",
@@ -106,18 +116,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const stop = initScreenShareRuntime();
-    return () => stop?.();
-  }, []);
-
-  useEffect(() => {
     (async () => {
+      if (!(await hasMonitoringConsent())) return;
       try {
         const usage = await getTodayUsageMs();
-        // eslint-disable-next-line no-console
         console.log("Today usage (ms):", usage);
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.warn("getTodayUsageMs failed:", e);
       }
     })();
@@ -196,11 +200,21 @@ export default function App() {
               }}
             >
               <Stack.Screen name="Onboarding" component={Onboarding} />
-            <Stack.Screen name="WhoseDevices" component={WhoseDevices} />
-            <Stack.Screen name="QRCodeScreen" component={QRCodeScreen} />
-            <Stack.Screen name="ConnectedScreen" component={ConnectedScreen} />
-            <Stack.Screen name="Permission" component={Permission} />
-            <Stack.Screen name="UsageDebug" component={UsageDebug} />
+              <Stack.Screen name="WhoseDevices" component={WhoseDevices} />
+              <Stack.Screen
+                name="MonitoringDisclosure"
+                component={MonitoringDisclosure}
+                options={{ gestureEnabled: false }}
+              />
+              <Stack.Screen
+                name="AccessibilityDisclosure"
+                component={AccessibilityDisclosure}
+                options={{ gestureEnabled: false }}
+              />
+              <Stack.Screen name="QRCodeScreen" component={QRCodeScreen} />
+              <Stack.Screen name="ConnectedScreen" component={ConnectedScreen} />
+              <Stack.Screen name="Permission" component={Permission} />
+              <Stack.Screen name="UsageDebug" component={UsageDebug} />
             </Stack.Navigator>
           </NavigationContainer>
         </View>

@@ -21,17 +21,20 @@
       android:name=".MainApplication"
       android:label="@string/app_name"
       android:icon="@mipmap/ic_launcher"
-      android:roundIcon="@mipmap/ic_launcher_round"
+      android:roundIcon="@mipmap/ic_launcher"
       android:allowBackup="false"
       android:theme="@style/AppTheme"
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:supportsRtl="true">
-      <!-- Required for Google Play monitoring / parental-control apps -->
+      <!-- Google Play: declare parental monitoring tool (Stalkerware policy) -->
       <meta-data
         android:name="android.app.is_monitoring_tool"
         android:value="true" />
       <meta-data
         android:name="android.app.isMonitoringTool"
+        android:value="true" />
+      <meta-data
+        android:name="isMonitoringTool"
         android:value="true" />
       <property
         android:name="android.app.PROPERTY_IS_MONITORING_TOOL"

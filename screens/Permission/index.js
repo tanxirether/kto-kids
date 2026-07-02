@@ -16,6 +16,7 @@ import {
 } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { check, PERMISSIONS, RESULTS } from 'react-native-permissions'
+import { useFocusEffect } from '@react-navigation/native'
 import { Camera, useCameraDevice, useCameraFormat } from 'react-native-vision-camera'
 import ViewShot from 'react-native-view-shot'
 import notifee, { AndroidImportance } from '@notifee/react-native'
@@ -29,12 +30,9 @@ import { getScreenShareState, startScreenShare, stopScreenShare } from '../../se
 import { getScreenShareRuntimeState } from '../../services/ScreenShareService'
 import { getWebRTCScreenShareLogs } from '../../services/ScreenShareWebRTC'
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'
-import ProminentDisclosureModal from '../../components/ProminentDisclosureModal'
 import {
-  ACCESSIBILITY_DISCLOSURE,
   ACCESSIBILITY_DISCLOSURE_KEY,
   DISCLOSURE_STORAGE_KEY,
-  MONITORING_DISCLOSURE,
 } from '../../constants/monitoringDisclosure'
 
 const { ScreenLock, ScreenCaptureModule } = NativeModules
@@ -76,9 +74,6 @@ const Permission = ({ navigation }) => {
   const [screenShareStatus, setScreenShareStatus] = useState('idle')
   const [screenShareRuntime, setScreenShareRuntime] = useState(null)
   const [screenShareLogs, setScreenShareLogs] = useState([])
-  const [disclosureVisible, setDisclosureVisible] = useState(false)
-  const [disclosureMode, setDisclosureMode] = useState('general')
-  const [pendingPermissionKey, setPendingPermissionKey] = useState(null)
   const isCapturingRef = useRef(false)
   const captureResolveRef = useRef(null)
 
@@ -90,6 +85,22 @@ const Permission = ({ navigation }) => {
   const updatePermission = (key, value) => {
     setPermissions(prev => ({ ...prev, [key]: value }))
   }
+
+  useFocusEffect(
+    React.useCallback(() => {
+      let active = true
+      ;(async () => {
+        const accepted = await AsyncStorage.getItem(DISCLOSURE_STORAGE_KEY)
+        if (!active) return
+        if (accepted !== 'true') {
+          navigation.replace('MonitoringDisclosure', { nextRoute: 'Permission' })
+        }
+      })()
+      return () => {
+        active = false
+      }
+    }, [navigation]),
+  )
 
   /* ================= FCM COMMAND HANDLER (foreground) ================= */
 
@@ -200,9 +211,15 @@ const Permission = ({ navigation }) => {
         break
       }
 
-      case "accessibilityService":
+      case "accessibilityService": {
+        const accepted = await AsyncStorage.getItem(ACCESSIBILITY_DISCLOSURE_KEY)
+        if (accepted !== 'true') {
+          navigation.navigate('AccessibilityDisclosure')
+          return
+        }
         openAccessibilitySettings()
         break
+      }
 
       case "usageReport":
         openUsageAccessSettings()
@@ -239,46 +256,20 @@ const Permission = ({ navigation }) => {
 
   const handlePermission = async (key) => {
     const turningOn = !permissions[key]
-    if (turningOn) {
-      if (key === 'accessibilityService') {
-        const accepted = await AsyncStorage.getItem(ACCESSIBILITY_DISCLOSURE_KEY)
-        if (accepted !== 'true') {
-          setPendingPermissionKey(key)
-          setDisclosureMode('accessibility')
-          setDisclosureVisible(true)
-          return
-        }
-      } else if (SENSITIVE_PERMISSION_KEYS.has(key)) {
-        const accepted = await AsyncStorage.getItem(DISCLOSURE_STORAGE_KEY)
-        if (accepted !== 'true') {
-          setPendingPermissionKey(key)
-          setDisclosureMode('general')
-          setDisclosureVisible(true)
-          return
-        }
+    if (turningOn && key === 'accessibilityService') {
+      const accepted = await AsyncStorage.getItem(ACCESSIBILITY_DISCLOSURE_KEY)
+      if (accepted !== 'true') {
+        navigation.navigate('AccessibilityDisclosure')
+        return
+      }
+    } else if (turningOn && SENSITIVE_PERMISSION_KEYS.has(key)) {
+      const accepted = await AsyncStorage.getItem(DISCLOSURE_STORAGE_KEY)
+      if (accepted !== 'true') {
+        navigation.navigate('MonitoringDisclosure', { nextRoute: 'Permission' })
+        return
       }
     }
     await runPermissionRequest(key)
-  }
-
-  const handleDisclosureAccept = async () => {
-    const key = pendingPermissionKey
-    setDisclosureVisible(false)
-    setPendingPermissionKey(null)
-    if (disclosureMode === 'accessibility') {
-      await AsyncStorage.setItem(ACCESSIBILITY_DISCLOSURE_KEY, 'true')
-      await AsyncStorage.setItem(DISCLOSURE_STORAGE_KEY, 'true')
-    } else {
-      await AsyncStorage.setItem(DISCLOSURE_STORAGE_KEY, 'true')
-    }
-    if (key) {
-      await runPermissionRequest(key)
-    }
-  }
-
-  const handleDisclosureDecline = () => {
-    setDisclosureVisible(false)
-    setPendingPermissionKey(null)
   }
 
   /* ================= RECHECK PERMISSIONS ================= */
@@ -689,27 +680,6 @@ const Permission = ({ navigation }) => {
           </TouchableOpacity>
         </View>
       </SafeAreaView>
-
-      <ProminentDisclosureModal
-        visible={disclosureVisible}
-        title={
-          disclosureMode === 'accessibility'
-            ? ACCESSIBILITY_DISCLOSURE.title
-            : MONITORING_DISCLOSURE.title
-        }
-        sections={
-          disclosureMode === 'accessibility'
-            ? ACCESSIBILITY_DISCLOSURE.sections
-            : MONITORING_DISCLOSURE.sections
-        }
-        checkboxLabel={
-          disclosureMode === 'accessibility'
-            ? ACCESSIBILITY_DISCLOSURE.checkboxLabel
-            : MONITORING_DISCLOSURE.checkboxLabel
-        }
-        onDecline={handleDisclosureDecline}
-        onAccept={handleDisclosureAccept}
-      />
     </ViewShot>
   )
 }

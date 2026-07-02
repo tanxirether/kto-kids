@@ -1,73 +1,87 @@
-export const DISCLOSURE_STORAGE_KEY = 'monitoring_prominent_disclosure_v1';
-export const ACCESSIBILITY_DISCLOSURE_KEY = 'accessibility_prominent_disclosure_v1';
+export const DISCLOSURE_STORAGE_KEY = 'monitoring_prominent_disclosure_v2';
+export const ACCESSIBILITY_DISCLOSURE_KEY = 'accessibility_prominent_disclosure_v2';
 
 export const MONITORING_DISCLOSURE = {
-  title: 'Parental monitoring disclosure',
+  title: 'Parental monitoring — required disclosure',
+  bannerText:
+    'K.T.O Kids is a parental monitoring tool. A parent or legal guardian must consent before this app collects or shares device data.',
   sections: [
     {
       heading: 'What this app is',
       body:
-        'K.T.O Kids is a parental monitoring app installed on a child\'s device. A parent or legal guardian links this device to their account to help supervise online activity and device use.',
+        'K.T.O Kids is installed on a child\'s Android device and pairs with the K.T.O Parent App. It is a monitoring tool — not a standalone app — used for lawful parental supervision with guardian consent.',
     },
     {
-      heading: 'Who receives the data',
+      heading: 'Who receives your data',
       body:
-        'Collected information is sent to the linked parent/guardian account and our servers only to provide parental monitoring features. It is not sold to third parties for advertising.',
+        'Data collected on this device is transmitted to the linked parent/guardian account (K.T.O Parent App) and to K.T.O servers to operate monitoring features. Data is not sold to third parties for advertising.',
     },
     {
-      heading: 'Data we may collect',
+      heading: 'Data this app may collect (with consent)',
       body:
-        '• App usage and foreground app names\n' +
-        '• Device location (when enabled)\n' +
+        '• Foreground app names and app usage duration\n' +
+        '• Device location (when location permission is enabled)\n' +
         '• Photos from the device camera (when enabled by the parent)\n' +
         '• Microphone audio (when enabled by the parent)\n' +
-        '• Screen content via screen sharing (when enabled and consented)\n' +
-        '• Alerts when configured keywords appear on screen\n' +
-        '• Device status needed to keep monitoring active in the background',
+        '• Screen content during parent-initiated screen sharing (after on-device consent)\n' +
+        '• Keyword safety alerts when configured text appears on screen\n' +
+        '• Device and app status needed to keep monitoring active',
     },
     {
-      heading: 'Accessibility Service',
+      heading: 'Android Accessibility Service',
       body:
-        'If you enable the K.T.O Kids Accessibility Service, the app uses the Android Accessibility API to detect which app is in the foreground, measure app usage time, and check on-screen text for parent-configured keyword alerts. We do not use Accessibility to change user actions without consent or to collect passwords from other apps.',
+        'If you enable Accessibility for K.T.O Kids, the app uses the Android Accessibility API to:\n' +
+        '• Detect which application is in the foreground\n' +
+        '• Record how long apps are used\n' +
+        '• Read on-screen text to match parent-configured keyword alerts\n\n' +
+        'Accessibility data is used only for parental monitoring and child safety. It is shared with the linked parent account. K.T.O Kids does not use Accessibility to perform unauthorized taps, purchases, or password collection.',
     },
     {
       heading: 'Your consent',
       body:
-        'By continuing, you confirm that you are the device owner or have permission from a parent/guardian, you have read this disclosure, and you consent to this data collection for parental monitoring.',
+        'You must read this disclosure and tap “I agree” before K.T.O Kids requests sensitive permissions or begins monitoring. You may decline and exit setup. A parent or legal guardian must authorize monitoring on this device.',
     },
   ],
   checkboxLabel:
-    'I have read this disclosure and consent to parental monitoring on this device.',
+    'I confirm I am the device owner or have permission from a parent/guardian. I have read this disclosure and consent to parental monitoring and data collection as described.',
 };
 
 export const ACCESSIBILITY_DISCLOSURE = {
-  title: 'Accessibility Service disclosure',
+  title: 'Accessibility Service — required disclosure',
+  bannerText:
+    'Before enabling Accessibility, you must consent to how K.T.O Kids uses the Accessibility API on this device.',
   sections: [
     {
-      heading: 'Why Accessibility is requested',
+      heading: 'Why we request Accessibility',
       body:
-        'K.T.O Kids uses the Android Accessibility Service so a linked parent can receive app-usage reports and safety alerts on this child device.',
+        'K.T.O Kids uses the Android Accessibility Service on this child device so a linked parent can receive app-usage reports and keyword safety alerts through the K.T.O Parent App.',
     },
     {
-      heading: 'Data accessed through Accessibility',
+      heading: 'Data accessed through Accessibility API',
       body:
-        '• Foreground application package name\n' +
-        '• App open/close and usage duration\n' +
-        '• On-screen text events to match parent-configured keywords\n' +
-        '• Basic view interaction events needed for monitoring\n\n' +
-        'This data is used only for parental monitoring and safety features.',
+        'When Accessibility is enabled, K.T.O Kids may access and process:\n' +
+        '• Foreground application package name (which app is open)\n' +
+        '• App open, close, and usage duration events\n' +
+        '• On-screen text and text-change events to detect parent-configured keywords\n' +
+        '• Window and view events needed for usage monitoring\n\n' +
+        'This data is collected on the child device, transmitted to K.T.O servers, and displayed to the linked parent/guardian account.',
+    },
+    {
+      heading: 'How the data is used',
+      body:
+        'Accessibility data is used solely for parental monitoring and child safety features: app usage reporting, activity timelines, and keyword alerts. It is not used for advertising or sold to data brokers.',
     },
     {
       heading: 'What we do not do',
       body:
-        'We do not use Accessibility to perform taps, purchases, or account changes on your behalf without your knowledge.',
+        'K.T.O Kids does not use Accessibility to perform taps, purchases, account changes, or other actions without the user\'s knowledge.',
     },
     {
-      heading: 'Consent',
+      heading: 'Next step',
       body:
-        'You must enable the K.T.O Kids Accessibility Service in system settings after accepting this disclosure.',
+        'After you agree below, Android system settings will open so you can enable the K.T.O Kids Accessibility Service. Monitoring through Accessibility begins only after you turn it on in settings.',
     },
   ],
   checkboxLabel:
-    'I consent to Accessibility-based app usage and keyword monitoring as described above.',
+    'I consent to K.T.O Kids collecting and sharing Accessibility API data (app usage, foreground app names, and on-screen text for keyword alerts) with the linked parent account as described above.',
 };
