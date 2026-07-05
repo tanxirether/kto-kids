@@ -28,17 +28,8 @@
       android:supportsRtl="true">
       <!-- Google Play: declare parental monitoring tool (Stalkerware policy) -->
       <meta-data
-        android:name="android.app.is_monitoring_tool"
-        android:value="true" />
-      <meta-data
-        android:name="android.app.isMonitoringTool"
-        android:value="true" />
-      <meta-data
         android:name="isMonitoringTool"
-        android:value="true" />
-      <property
-        android:name="android.app.PROPERTY_IS_MONITORING_TOOL"
-        android:value="true" />
+        android:value="child_monitoring" />
       <activity
         android:name=".BlockedAppActivity"
         android:exported="false"
