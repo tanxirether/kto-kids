@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">K.T.O Kids</string>
-    <string name="accessibility_service_description">K.T.O Kids uses Accessibility on this child device for parental monitoring: it detects which app is open, records app usage time, and checks on-screen text for parent-configured safety keywords. Data is sent to the linked parent account only.</string>
+    <string name="accessibility_service_description">K.T.O Kids uses Accessibility for parental monitoring: foreground app usage, on-screen keyword alerts, website hints, and app blocking. A full in-app disclosure is shown before you enable this service.</string>
 </resources>

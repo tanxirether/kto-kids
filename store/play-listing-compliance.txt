@@ -30,13 +30,19 @@ K.T.O Kids is not a standalone application and requires pairing with the K.T.O P
 
 The application uses accessibility, usage access, location, and other device permissions solely to provide parental control and child safety features with parental consent.
 
-ACCESSIBILITY SERVICE (required disclosure)
-K.T.O Kids uses the Android Accessibility Service on the child's device when enabled by a parent or guardian. Through Accessibility, the app may access:
-• The name of the app currently in the foreground
-• App open/close events and usage duration
-• On-screen text to check for parent-configured keyword safety alerts
+ACCESSIBILITY SERVICE (required disclosure — also shown in-app before enabling)
+K.T.O Kids shows a separate full-screen prominent disclosure before Accessibility is enabled. Through Accessibility, the app may access:
+• Foreground app identity and usage duration
+• On-screen text for parent-configured keyword alerts (snippets up to 200 characters)
+• Website activity hints from visible browser screen text (not saved browser history databases)
+• Other user-generated content visible on screen when keyword alerts match
+• Personal information only if visible on screen in a keyword snippet (name, email, phone, address, SMS/email text on screen — not from contacts, SMS, or mail databases)
 
-This Accessibility data is used only for parental monitoring and child safety. It is transmitted to the linked parent account via the K.T.O Parent App and our servers. K.T.O Kids does not use Accessibility to perform unauthorized taps, purchases, or account changes on the user's behalf.
+Other actions via Accessibility: open a blocking screen when a parent-blocked app launches or a daily time limit is exceeded. No taps, purchases, or account changes.
+
+NOT via Accessibility: precise location (Location permission only), crash logs (not uploaded).
+
+This Accessibility data is used only for parental monitoring and child safety. It is transmitted to the linked parent account via the K.T.O Parent App and our servers.
 
 USAGE ACCESS & OTHER PERMISSIONS
 When enabled with consent, the app may also use:
@@ -51,6 +57,11 @@ Before sensitive features are enabled, K.T.O Kids shows a prominent in-app discl
 MONITORING TOOL DECLARATION
 K.T.O Kids is a parental monitoring application (monitoring tool) installed on a child's device. It is not designed for covert surveillance. A parent or legal guardian must pair the device and consent to monitoring features.
 
+Manifest (required for Google Play):
+1. <meta-data android:name="isMonitoringTool" android:value="child_monitoring" /> under <manifest>
+2. <meta-data android:name="isMonitoringTool" android:value="child_monitoring" /> under <application>
+(Do not use android:isMonitoringTool on <application> — it breaks AAPT on current SDK.)
+
 K.T.O helps families create a safer digital environment by giving parents the tools they need to protect and guide their children online.
 
 === PLAY CONSOLE — App content forms ===
@@ -58,8 +69,33 @@ K.T.O helps families create a safer digital environment by giving parents the to
 Monitoring / stalkerware declaration:
 → Yes, this app is a monitoring tool (parental control / child device supervision).
 
-Accessibility API declaration (copy into the form):
+Accessibility API declaration (Play Console → App content → Accessibility):
 Purpose: Parental monitoring and child safety on a device paired with the K.T.O Parent App.
-Data accessed via Accessibility: foreground app identity, app usage duration, on-screen text for parent-configured keyword alerts.
+
+CHECK these data types (collected via Accessibility):
+• App activity / other actions — foreground app usage + blocking screen when limits exceeded
+• Web browsing history — website hints from visible browser screen text only (not history DB)
+• Other user-generated content — on-screen text in keyword alert snippets
+• Name, Email address, Phone number, Address, Personal identifiers — only if visible on screen in keyword snippets
+• SMS or MMS messages, Emails — only visible on-screen text in keyword snippets, not message/mail databases
+
+DO NOT CHECK under Accessibility (use other declarations instead):
+• Precise location — declare under Location permission / Data safety only
+• Crash logs — not collected
+
 Who receives data: Linked parent/guardian account.
 Data is not used for advertising or sold to third parties.
+
+Video for review (REQUIRED — scroll entire disclosure):
+1. Open K.T.O Kids on child device → go to Permissions screen
+2. Tap Accessibility Service toggle
+3. Full-screen disclosure appears — SLOWLY SCROLL through ALL sections:
+   Web browsing history, Other user-generated content, Emails, SMS/MMS, Name, Email address,
+   Phone number, Address, Personal identifiers, App activity, Other actions,
+   Precise location (not via Accessibility), Crash logs (not via Accessibility)
+4. Check the consent checkbox → tap "I agree — open Accessibility settings"
+5. Android Accessibility settings open
+
+CRITICAL: In Play Console Accessibility form, UNCHECK "Precise location" and "Crash logs"
+if you checked them — the app does NOT collect these via AccessibilityService API.
+If left checked, Google will reject until the in-app disclosure explains them as collected.
