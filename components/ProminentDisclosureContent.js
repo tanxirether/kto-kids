@@ -21,10 +21,14 @@ export default function ProminentDisclosureContent({
   checkboxLabel,
   acceptLabel = 'I agree — continue',
   declineLabel = 'Decline',
+  requireScrollToEnd = false,
   onAccept,
   onDecline,
 }) {
   const [checked, setChecked] = useState(false);
+  const [scrolledToEnd, setScrolledToEnd] = useState(!requireScrollToEnd);
+
+  const canAccept = checked && scrolledToEnd;
 
   React.useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -44,6 +48,14 @@ export default function ProminentDisclosureContent({
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator
+        onScroll={({ nativeEvent }) => {
+          if (!requireScrollToEnd || scrolledToEnd) return;
+          const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+          const atEnd =
+            layoutMeasurement.height + contentOffset.y >= contentSize.height - 48;
+          if (atEnd) setScrolledToEnd(true);
+        }}
+        scrollEventThrottle={16}
       >
         {(sections || []).map((section) => (
           <View key={section.heading} style={styles.section}>
@@ -52,6 +64,11 @@ export default function ProminentDisclosureContent({
           </View>
         ))}
       </ScrollView>
+      {requireScrollToEnd && !scrolledToEnd ? (
+        <Text style={styles.scrollHint}>
+          Scroll down to read all AccessibilityService API data types before continuing.
+        </Text>
+      ) : null}
       <Pressable
         style={styles.checkboxRow}
         onPress={() => setChecked((v) => !v)}
@@ -68,12 +85,12 @@ export default function ProminentDisclosureContent({
           <Text style={styles.declineText}>{declineLabel}</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.acceptBtn, !checked && styles.acceptBtnDisabled]}
+          style={[styles.acceptBtn, !canAccept && styles.acceptBtnDisabled]}
           onPress={() => {
-            if (!checked) return;
+            if (!canAccept) return;
             onAccept?.();
           }}
-          disabled={!checked}
+          disabled={!canAccept}
         >
           <Text style={styles.acceptText}>{acceptLabel}</Text>
         </TouchableOpacity>
@@ -164,6 +181,13 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     color: '#111827',
     fontWeight: '600',
+  },
+  scrollHint: {
+    fontSize: 13,
+    color: '#B45309',
+    fontWeight: '600',
+    marginBottom: 8,
+    textAlign: 'center',
   },
   actions: {
     flexDirection: 'row',

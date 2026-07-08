@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">K.T.O Kids</string>
-    <string name="accessibility_service_description">K.T.O Kids uses Accessibility for parental monitoring: foreground app usage, on-screen keyword alerts, website hints, and app blocking. A full in-app disclosure is shown before you enable this service.</string>
+    <string name="accessibility_service_description">K.T.O Kids AccessibilityService API disclosure: collects Other actions, Web browsing history, Emails, SMS or MMS messages, Name, Email address, Personal identifiers, Address, Phone number, and Other user-generated content for parental monitoring. Precise location and Crash logs are not collected via Accessibility. Full in-app disclosure is shown before enabling this service.</string>
 </resources>

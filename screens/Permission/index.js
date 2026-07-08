@@ -90,10 +90,16 @@ const Permission = ({ navigation }) => {
     React.useCallback(() => {
       let active = true
       ;(async () => {
-        const accepted = await AsyncStorage.getItem(DISCLOSURE_STORAGE_KEY)
+        const monitoringAccepted = await AsyncStorage.getItem(DISCLOSURE_STORAGE_KEY)
         if (!active) return
-        if (accepted !== 'true') {
+        if (monitoringAccepted !== 'true') {
           navigation.replace('MonitoringDisclosure', { nextRoute: 'Permission' })
+          return
+        }
+        const accessibilityAccepted = await AsyncStorage.getItem(ACCESSIBILITY_DISCLOSURE_KEY)
+        if (!active) return
+        if (accessibilityAccepted !== 'true') {
+          navigation.navigate('AccessibilityDisclosure')
         }
       })()
       return () => {
