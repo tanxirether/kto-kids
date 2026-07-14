@@ -96,6 +96,17 @@ Video for review (REQUIRED — scroll entire disclosure):
 4. Check the consent checkbox → tap "I agree — open Accessibility settings"
 5. Android Accessibility settings open
 
-CRITICAL: In Play Console Accessibility form, UNCHECK "Precise location" and "Crash logs"
-if you checked them — the app does NOT collect these via AccessibilityService API.
-If left checked, Google will reject until the in-app disclosure explains them as collected.
+CRITICAL — Play Console Accessibility form MUST match disclosure:
+UNCHECK under Accessibility (or Google will keep rejecting):
+• Precise location
+• Crash logs
+
+CHECK under Accessibility (match in-app disclosure):
+• Other actions
+• Web browsing history
+• Emails
+• SMS or MMS messages
+• Name, Email address, Personal identifiers, Address, Phone number
+• Other user-generated content
+
+Review video MUST show the sticky data-types strip (all 12 names) + scroll every section.

@@ -37,8 +37,8 @@ android {
         applicationId "com.kto_kids"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 14
-        versionName "1.0.6"
+        versionCode 16
+        versionName "1.0.8"
     }
 
     signingConfigs {

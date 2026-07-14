@@ -1,5 +1,21 @@
 export const DISCLOSURE_STORAGE_KEY = 'monitoring_prominent_disclosure_v2';
-export const ACCESSIBILITY_DISCLOSURE_KEY = 'accessibility_prominent_disclosure_v5';
+export const ACCESSIBILITY_DISCLOSURE_KEY = 'accessibility_prominent_disclosure_v7';
+
+/** Exact labels from Google Play Accessibility rejection — must appear in UI text. */
+export const GOOGLE_ACCESSIBILITY_DATA_TYPES = [
+  'Other actions',
+  'Web browsing history',
+  'Emails',
+  'Precise location',
+  'Crash logs',
+  'SMS or MMS messages',
+  'Name',
+  'Email address',
+  'Personal identifiers',
+  'Address',
+  'Phone number',
+  'Other user-generated content',
+];
 
 export const MONITORING_DISCLOSURE = {
   title: 'Parental monitoring — required disclosure',
@@ -30,7 +46,7 @@ export const MONITORING_DISCLOSURE = {
     {
       heading: 'Accessibility Service (separate required disclosure)',
       body:
-        'Before you enable Accessibility, K.T.O Kids shows a separate full-screen disclosure that lists every data type collected through the AccessibilityService API and the purpose for each. You must read and accept that disclosure before Accessibility settings open.',
+        'Before you enable Accessibility, K.T.O Kids shows a separate full-screen AccessibilityService API disclosure that lists every data type and purpose. You must accept that disclosure before Accessibility settings open.',
     },
     {
       heading: 'Your consent',
@@ -43,98 +59,135 @@ export const MONITORING_DISCLOSURE = {
 };
 
 /**
- * Google Play Accessibility API policy — section headings MUST match Play Console
- * data-type labels exactly. Each entry: what is collected + purpose.
+ * Prominent disclosure for AccessibilityService API (Google Play User Data policy).
+ * Each Google-declared data type has its own heading with collection + purpose.
  */
 export const ACCESSIBILITY_DISCLOSURE = {
-  title: 'AccessibilityService API — required disclosure',
+  title: 'AccessibilityService API — data use disclosure',
   bannerText:
-    'REQUIRED: Read every data type below. K.T.O Kids uses the AccessibilityService API on this child device for parental monitoring.',
+    'This prominent disclosure explains what data K.T.O Kids collects using the AccessibilityService API and for what purpose. Scroll and read every data type before continuing.',
+  dataTypesLabel: 'Data types covered in this disclosure',
+  dataTypes: GOOGLE_ACCESSIBILITY_DATA_TYPES,
   sections: [
     {
-      heading: 'All AccessibilityService API data types (read every item)',
+      heading: 'Purpose of AccessibilityService API',
       body:
-        'K.T.O Kids collects or processes the following through the AccessibilityService API. Each item is explained in the sections below with purpose:\n\n' +
-        '• Other actions\n' +
-        '• Web browsing history\n' +
-        '• Emails\n' +
-        '• Precise location\n' +
-        '• Crash logs\n' +
-        '• SMS or MMS messages\n' +
-        '• Name\n' +
-        '• Email address\n' +
-        '• Personal identifiers\n' +
-        '• Address\n' +
-        '• Phone number\n' +
-        '• Other user-generated content\n\n' +
-        'Data is shared with the linked parent/guardian account (K.T.O Parent App) and K.T.O servers. Not used for advertising or sold to third parties.',
+        'K.T.O Kids uses the AccessibilityService API for parental control and child safety on a child device paired with the K.T.O Parent App.\n\n' +
+        'With parent/guardian consent, the AccessibilityService API is used to detect opened apps, monitor app usage, detect screen interactions, and process visible on-screen text to identify unsafe content, web activity, messages, searches, and restricted app activity.\n\n' +
+        'This data is used to show parents activity reports, apply app blocking rules, enforce screen time limits, and provide child safety alerts.\n\n' +
+        'Data is shared with the linked parent/guardian account and K.T.O servers. K.T.O Kids does not collect passwords or payment information, and does not use this data for advertising.',
     },
     {
       heading: 'Other actions',
       body:
-        'K.T.O Kids uses the AccessibilityService API to perform other actions on this device: when a parent-blocked app is opened, or when a parent-set daily app time limit is exceeded, the app opens a blocking screen. Purpose: enforce parental app blocking and screen-time rules for the linked parent account. K.T.O Kids does not perform taps, swipes, purchases, or account changes without the user\'s knowledge.',
+        'Data type: Other actions.\n' +
+        'Collected using AccessibilityService API: Yes.\n' +
+        'What: Device actions performed by the app through AccessibilityService API — opening a blocking screen when a parent-blocked app is launched, or when a parent-set daily screen time / app limit is exceeded.\n' +
+        'Purpose: Parental app blocking and screen time enforcement for child safety.',
     },
     {
       heading: 'Web browsing history',
       body:
-        'K.T.O Kids collects web browsing history data visible on the current browser screen (website or URL text shown in the address bar or on the page) through AccessibilityService API window and text-change events. Purpose: report website activity hints and browsing-related keyword alerts to the linked parent account. Saved browser history databases are not read.',
+        'Data type: Web browsing history.\n' +
+        'Collected using AccessibilityService API: Yes.\n' +
+        'What: Website / URL text visible on the current browser screen (for example domain text in the address bar or on the page), read through AccessibilityService API window and text events.\n' +
+        'Purpose: Website activity reports and child safety alerts for the linked parent account.\n' +
+        'Note: Saved browser history databases are not read.',
     },
     {
       heading: 'Emails',
       body:
-        'K.T.O Kids collects email content that is visible on the device screen in a mail or messaging app through AccessibilityService API on-screen text events. Purpose: send keyword safety alerts to the linked parent when configured words appear in visible email content. Email inboxes and mail account databases are not accessed.',
+        'Data type: Emails.\n' +
+        'Collected using AccessibilityService API: Yes.\n' +
+        'What: Email content that is visible on the device screen, processed through AccessibilityService API on-screen text events.\n' +
+        'Purpose: Detect unsafe content and send child safety alerts to the linked parent.\n' +
+        'Note: Email inboxes and mail account databases are not accessed.',
     },
     {
       heading: 'Precise location',
       body:
-        'K.T.O Kids does not collect precise location through the AccessibilityService API. Precise location is collected only when the separate Android Location permission is granted, to enable live location tracking for the linked parent account. Location permission has its own system prompt and parental consent flow, independent of Accessibility.',
+        'Data type: Precise location.\n' +
+        'Collected using AccessibilityService API: No.\n' +
+        'What: Precise location is not collected through the AccessibilityService API.\n' +
+        'How location is collected (separate permission): Only when the Android Location permission is granted.\n' +
+        'Purpose of location (when enabled): Parental live location tracking for child safety, independent of AccessibilityService API.',
     },
     {
       heading: 'Crash logs',
       body:
-        'K.T.O Kids does not collect or upload crash logs through the AccessibilityService API. No crash log data is transmitted to the linked parent account or K.T.O servers. Any local service error messages remain on the device for debugging only.',
+        'Data type: Crash logs.\n' +
+        'Collected using AccessibilityService API: No.\n' +
+        'What: Crash logs are not collected or uploaded through the AccessibilityService API.\n' +
+        'Purpose of this disclosure: To state clearly that Crash logs are not part of AccessibilityService API data collection. Local debug logs stay on the device and are not sent to the parent account.',
     },
     {
       heading: 'SMS or MMS messages',
       body:
-        'K.T.O Kids collects SMS or MMS message text that is visible on the device screen through AccessibilityService API on-screen text events when a messaging app is open. Purpose: send keyword safety alerts to the linked parent when configured words appear in visible message content. SMS/MMS databases and message stores are not accessed.',
+        'Data type: SMS or MMS messages.\n' +
+        'Collected using AccessibilityService API: Yes.\n' +
+        'What: SMS or MMS message text visible on the device screen when a messaging app is open, processed through AccessibilityService API on-screen text events.\n' +
+        'Purpose: Detect unsafe content and send child safety alerts to the linked parent.\n' +
+        'Note: SMS/MMS databases and message stores are not accessed.',
     },
     {
       heading: 'Name',
       body:
-        'K.T.O Kids may collect a name when it appears as visible on-screen text included in a keyword alert snippet (up to 200 characters) through AccessibilityService API text events. Purpose: incidental inclusion in keyword safety alerts sent to the linked parent. Contact lists and account profiles are not accessed.',
+        'Data type: Name.\n' +
+        'Collected using AccessibilityService API: Yes (only if visible on screen).\n' +
+        'What: A person\'s name when it appears as visible on-screen text and is included in a safety-alert text snippet (up to 200 characters).\n' +
+        'Purpose: Incidental inclusion in child safety alerts sent to the linked parent.\n' +
+        'Note: Contact lists and account profiles are not accessed.',
     },
     {
       heading: 'Email address',
       body:
-        'K.T.O Kids may collect an email address when it appears as visible on-screen text included in a keyword alert snippet through AccessibilityService API text events. Purpose: incidental inclusion in keyword safety alerts sent to the linked parent. Email account data is not accessed.',
+        'Data type: Email address.\n' +
+        'Collected using AccessibilityService API: Yes (only if visible on screen).\n' +
+        'What: An email address when it appears as visible on-screen text in a safety-alert snippet.\n' +
+        'Purpose: Incidental inclusion in child safety alerts sent to the linked parent.\n' +
+        'Note: Email account databases are not accessed.',
     },
     {
       heading: 'Personal identifiers',
       body:
-        'K.T.O Kids may collect personal identifiers (such as usernames or account IDs) when visible on screen and included in a keyword alert snippet through AccessibilityService API text events. Purpose: incidental inclusion in keyword safety alerts sent to the linked parent. Device account databases are not accessed.',
+        'Data type: Personal identifiers.\n' +
+        'Collected using AccessibilityService API: Yes (only if visible on screen).\n' +
+        'What: Identifiers such as usernames or account IDs when visible on screen and included in a safety-alert snippet.\n' +
+        'Purpose: Incidental inclusion in child safety alerts sent to the linked parent.\n' +
+        'Note: Device account databases are not accessed.',
     },
     {
       heading: 'Address',
       body:
-        'K.T.O Kids may collect an address when it appears as visible on-screen text included in a keyword alert snippet through AccessibilityService API text events. Purpose: incidental inclusion in keyword safety alerts sent to the linked parent. Stored address profiles are not accessed.',
+        'Data type: Address.\n' +
+        'Collected using AccessibilityService API: Yes (only if visible on screen).\n' +
+        'What: A postal or physical address when it appears as visible on-screen text in a safety-alert snippet.\n' +
+        'Purpose: Incidental inclusion in child safety alerts sent to the linked parent.\n' +
+        'Note: Stored address profiles are not accessed.',
     },
     {
       heading: 'Phone number',
       body:
-        'K.T.O Kids may collect a phone number when it appears as visible on-screen text included in a keyword alert snippet through AccessibilityService API text events. Purpose: incidental inclusion in keyword safety alerts sent to the linked parent. Call logs and contact databases are not accessed.',
+        'Data type: Phone number.\n' +
+        'Collected using AccessibilityService API: Yes (only if visible on screen).\n' +
+        'What: A phone number when it appears as visible on-screen text in a safety-alert snippet.\n' +
+        'Purpose: Incidental inclusion in child safety alerts sent to the linked parent.\n' +
+        'Note: Call logs and contact databases are not accessed.',
     },
     {
       heading: 'Other user-generated content',
       body:
-        'K.T.O Kids collects other user-generated content — text the user types or sees on screen in apps (messages, posts, search terms, chat text, captions) through AccessibilityService API text-change and window content events. Up to 200 characters may be sent when a parent-configured keyword matches. Purpose: keyword safety alerts to the linked parent account.',
+        'Data type: Other user-generated content.\n' +
+        'Collected using AccessibilityService API: Yes.\n' +
+        'What: Text the user types or sees on screen (messages, posts, searches, chat text, captions), processed through AccessibilityService API text-change and window content events. Up to 200 characters may be sent when unsafe / restricted content is detected.\n' +
+        'Purpose: Child safety alerts and restricted activity reporting to the linked parent.',
     },
     {
       heading: 'Your consent',
       body:
-        'You must scroll through this entire disclosure, check the box below, and tap “I agree” before Android Accessibility settings open. Accessibility data collection begins only after you manually enable the K.T.O Kids Accessibility Service in settings. You may decline and exit without enabling Accessibility.',
+        'You must read every data type above, check the consent box, and tap Continue before Android Accessibility settings open. AccessibilityService API data collection begins only after you enable the K.T.O Kids Accessibility Service in settings. You may decline and exit without enabling Accessibility.',
     },
   ],
   checkboxLabel:
-    'I have read the full AccessibilityService API disclosure above, including: Other actions, Web browsing history, Emails, Precise location, Crash logs, SMS or MMS messages, Name, Email address, Personal identifiers, Address, Phone number, and Other user-generated content. I consent to collection and sharing with the linked parent account as described.',
+    'I have read this AccessibilityService API disclosure. I understand the app\'s use of: Other actions, Web browsing history, Emails, Precise location, Crash logs, SMS or MMS messages, Name, Email address, Personal identifiers, Address, Phone number, and Other user-generated content. I consent to parental control and child safety use as described.',
 };

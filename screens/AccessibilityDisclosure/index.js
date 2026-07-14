@@ -22,7 +22,9 @@ export default function AccessibilityDisclosure({ navigation }) {
       bannerText={ACCESSIBILITY_DISCLOSURE.bannerText}
       sections={ACCESSIBILITY_DISCLOSURE.sections}
       checkboxLabel={ACCESSIBILITY_DISCLOSURE.checkboxLabel}
-      acceptLabel="I agree — open Accessibility settings"
+      dataTypesLabel={ACCESSIBILITY_DISCLOSURE.dataTypesLabel}
+      dataTypes={ACCESSIBILITY_DISCLOSURE.dataTypes}
+      acceptLabel="Continue — open Accessibility settings"
       requireScrollToEnd
       onDecline={() => navigation.goBack()}
       onAccept={handleAccept}
