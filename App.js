@@ -13,6 +13,7 @@ import ConnectedScreen from "./screens/connected";
 import UsageDebug from "./screens/UsageDebug";
 import MonitoringDisclosure from "./screens/MonitoringDisclosure";
 import AccessibilityDisclosure from "./screens/AccessibilityDisclosure";
+import LocationDisclosure from "./screens/LocationDisclosure";
 import { register as registerCapture, unregister as unregisterCapture, getViewShotCapture } from "./services/ScreenshotCaptureRegistry";
 import { isPending, clearPending } from "./services/PendingScreenshotManager";
 import { restorePendingFromStorage } from "./services/PendingCameraCaptureManager";
@@ -209,6 +210,11 @@ export default function App() {
               <Stack.Screen
                 name="AccessibilityDisclosure"
                 component={AccessibilityDisclosure}
+                options={{ gestureEnabled: false }}
+              />
+              <Stack.Screen
+                name="LocationDisclosure"
+                component={LocationDisclosure}
                 options={{ gestureEnabled: false }}
               />
               <Stack.Screen name="QRCodeScreen" component={QRCodeScreen} />

@@ -52,7 +52,12 @@ When enabled with consent, the app may also use:
 • Screen capture / screen sharing — only after on-device consent for parent-initiated viewing
 
 DATA & CONSENT
-Before sensitive features are enabled, K.T.O Kids shows a prominent in-app disclosure on the child's device and requires explicit consent. Monitoring is intended for lawful parental supervision only, with permission from a parent or legal guardian.
+Before sensitive features are enabled, K.T.O Kids shows prominent in-app disclosures on the child's device and requires explicit consent:
+• General parental monitoring disclosure
+• Separate AccessibilityService API disclosure before enabling Accessibility
+• Separate Location data disclosure before enabling Live Location (precise / background location for parental tracking)
+
+Monitoring is intended for lawful parental supervision only, with permission from a parent or legal guardian.
 
 MONITORING TOOL DECLARATION
 K.T.O Kids is a parental monitoring application (monitoring tool) installed on a child's device. It is not designed for covert surveillance. A parent or legal guardian must pair the device and consent to monitoring features.
@@ -99,6 +104,7 @@ Video for review (REQUIRED — scroll entire disclosure):
 CRITICAL — Play Console Accessibility form MUST match disclosure:
 UNCHECK under Accessibility (or Google will keep rejecting):
 • Precise location
+• Approximate location
 • Crash logs
 
 CHECK under Accessibility (match in-app disclosure):
@@ -108,5 +114,8 @@ CHECK under Accessibility (match in-app disclosure):
 • SMS or MMS messages
 • Name, Email address, Personal identifiers, Address, Phone number
 • Other user-generated content
+• Diagnostics (local service health — if declared)
+• Other app performance data (app usage duration)
+• Device or other identifiers (app package names)
 
-Review video MUST show the sticky data-types strip (all 12 names) + scroll every section.
+Review video MUST show the sticky data-types strip (all named types) + scroll every section.

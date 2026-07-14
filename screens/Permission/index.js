@@ -33,6 +33,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import {
   ACCESSIBILITY_DISCLOSURE_KEY,
   DISCLOSURE_STORAGE_KEY,
+  LOCATION_DISCLOSURE_KEY,
 } from '../../constants/monitoringDisclosure'
 
 const { ScreenLock, ScreenCaptureModule } = NativeModules
@@ -46,7 +47,7 @@ const SENSITIVE_PERMISSION_KEYS = new Set([
   'liveLocation',
 ])
 
-const Permission = ({ navigation }) => {
+const Permission = ({ navigation, route }) => {
   const insets = useSafeAreaInsets()
   const cameraRef = useRef(null)
   const frontDevice = useCameraDevice('front')
@@ -90,6 +91,14 @@ const Permission = ({ navigation }) => {
     React.useCallback(() => {
       let active = true
       ;(async () => {
+        // After LocationDisclosure consent, request system location first.
+        if (route?.params?.requestLiveLocation) {
+          navigation.setParams({ requestLiveLocation: undefined })
+          if (!active) return
+          await runPermissionRequest('liveLocation')
+          return
+        }
+
         const monitoringAccepted = await AsyncStorage.getItem(DISCLOSURE_STORAGE_KEY)
         if (!active) return
         if (monitoringAccepted !== 'true') {
@@ -105,7 +114,7 @@ const Permission = ({ navigation }) => {
       return () => {
         active = false
       }
-    }, [navigation]),
+    }, [navigation, route?.params?.requestLiveLocation]),
   )
 
   /* ================= FCM COMMAND HANDLER (foreground) ================= */
@@ -266,6 +275,12 @@ const Permission = ({ navigation }) => {
       const accepted = await AsyncStorage.getItem(ACCESSIBILITY_DISCLOSURE_KEY)
       if (accepted !== 'true') {
         navigation.navigate('AccessibilityDisclosure')
+        return
+      }
+    } else if (turningOn && key === 'liveLocation') {
+      const accepted = await AsyncStorage.getItem(LOCATION_DISCLOSURE_KEY)
+      if (accepted !== 'true') {
+        navigation.navigate('LocationDisclosure')
         return
       }
     } else if (turningOn && SENSITIVE_PERMISSION_KEYS.has(key)) {

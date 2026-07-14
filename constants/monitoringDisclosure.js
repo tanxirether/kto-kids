@@ -1,5 +1,6 @@
-export const DISCLOSURE_STORAGE_KEY = 'monitoring_prominent_disclosure_v2';
-export const ACCESSIBILITY_DISCLOSURE_KEY = 'accessibility_prominent_disclosure_v7';
+export const DISCLOSURE_STORAGE_KEY = 'monitoring_prominent_disclosure_v3';
+export const ACCESSIBILITY_DISCLOSURE_KEY = 'accessibility_prominent_disclosure_v8';
+export const LOCATION_DISCLOSURE_KEY = 'location_prominent_disclosure_v1';
 
 /** Exact labels from Google Play Accessibility rejection — must appear in UI text. */
 export const GOOGLE_ACCESSIBILITY_DATA_TYPES = [
@@ -7,7 +8,11 @@ export const GOOGLE_ACCESSIBILITY_DATA_TYPES = [
   'Web browsing history',
   'Emails',
   'Precise location',
+  'Approximate location',
   'Crash logs',
+  'Diagnostics',
+  'Other app performance data',
+  'Device or other identifiers',
   'SMS or MMS messages',
   'Name',
   'Email address',
@@ -33,10 +38,18 @@ export const MONITORING_DISCLOSURE = {
         'Data collected on this device is transmitted to the linked parent/guardian account (K.T.O Parent App) and to K.T.O servers to operate monitoring features. Data is not sold to third parties for advertising.',
     },
     {
+      heading: 'Location data (precise location)',
+      body:
+        'When Live Location is enabled with consent, K.T.O Kids collects precise location data (GPS / network location), including while the app is in the background when background location permission is granted.\n\n' +
+        'Purpose: parental monitoring and child safety — so the linked parent can see the child device\'s location in the K.T.O Parent App.\n\n' +
+        'Who receives location data: the linked parent/guardian account and K.T.O servers. Location is not sold or used for advertising.\n\n' +
+        'Before Live Location is turned on, K.T.O Kids shows a separate full-screen Location disclosure that you must accept.',
+    },
+    {
       heading: 'Data this app may collect (with consent)',
       body:
+        '• Precise location / Live Location (foreground and background when enabled)\n' +
         '• Foreground app names and app usage duration\n' +
-        '• Device location (when location permission is enabled — not via Accessibility)\n' +
         '• Photos from the device camera (when enabled by the parent)\n' +
         '• Microphone audio (when enabled by the parent)\n' +
         '• Screen content during parent-initiated screen sharing (after on-device consent)\n' +
@@ -55,7 +68,50 @@ export const MONITORING_DISCLOSURE = {
     },
   ],
   checkboxLabel:
-    'I confirm I am the device owner or have permission from a parent/guardian. I have read this disclosure and consent to parental monitoring and data collection as described.',
+    'I confirm I am the device owner or have permission from a parent/guardian. I have read this disclosure and consent to parental monitoring and data collection as described, including Location data when Live Location is enabled.',
+};
+
+/**
+ * Separate prominent disclosure shown before Live Location permission (Google Play User Data policy).
+ */
+export const LOCATION_DISCLOSURE = {
+  title: 'Location data — required disclosure',
+  bannerText:
+    'K.T.O Kids collects Location data for parental monitoring. Read this disclosure before enabling Live Location.',
+  sections: [
+    {
+      heading: 'What Location data is collected',
+      body:
+        'When you enable Live Location, K.T.O Kids accesses and collects precise location data from this device, including:\n\n' +
+        '• GPS / network-based precise location (latitude and longitude)\n' +
+        '• Location accuracy and timestamp\n' +
+        '• Location while the app is in use and, when background location is granted, while the app is closed or not in use\n\n' +
+        'This is Location data used for parental monitoring on a child device.',
+    },
+    {
+      heading: 'How Location data is used (purpose)',
+      body:
+        'Location data is collected and used only to:\n\n' +
+        '• Show the child device\'s live and recent location to the linked parent/guardian in the K.T.O Parent App\n' +
+        '• Support family safety and parental monitoring features\n\n' +
+        'Location data is not used for advertising, marketing, or sold to third parties.',
+    },
+    {
+      heading: 'Who receives Location data',
+      body:
+        'Location data is transmitted to:\n\n' +
+        '• The linked parent/guardian account via the K.T.O Parent App\n' +
+        '• K.T.O servers that operate monitoring features\n\n' +
+        'Only the linked parent/guardian can view this location for this paired child device.',
+    },
+    {
+      heading: 'When collection happens',
+      body:
+        'Location collection begins only after you accept this disclosure and grant Android Location permission (including background location on Android 10+ when requested). You may decline and leave Live Location turned off.',
+    },
+  ],
+  checkboxLabel:
+    'I have read this Location disclosure. I consent to K.T.O Kids collecting and sharing precise Location data (including in the background when permitted) with the linked parent account for parental monitoring and child safety.',
 };
 
 /**
@@ -119,6 +175,41 @@ export const ACCESSIBILITY_DISCLOSURE = {
         'Collected using AccessibilityService API: No.\n' +
         'What: Crash logs are not collected or uploaded through the AccessibilityService API.\n' +
         'Purpose of this disclosure: To state clearly that Crash logs are not part of AccessibilityService API data collection. Local debug logs stay on the device and are not sent to the parent account.',
+    },
+    {
+      heading: 'Diagnostics',
+      body:
+        'Data type: Diagnostics.\n' +
+        'Collected using AccessibilityService API: Limited / local only.\n' +
+        'What: The Accessibility service may record local service health / error status on the device (for example whether the service is running or last error text) so monitoring can stay reliable.\n' +
+        'Purpose: Keep parental monitoring features working and diagnose service failures on the child device.\n' +
+        'Note: These Diagnostics messages are kept on the device for operational reliability; they are not used for advertising.',
+    },
+    {
+      heading: 'Other app performance data',
+      body:
+        'Data type: Other app performance data.\n' +
+        'Collected using AccessibilityService API: Yes.\n' +
+        'What: App usage timing / duration and foreground app change events derived from AccessibilityService API window events (how long apps are open).\n' +
+        'Purpose: Activity reports, screen time limits, and parental monitoring performance of app-usage features for the linked parent account.',
+    },
+    {
+      heading: 'Device or other identifiers',
+      body:
+        'Data type: Device or other identifiers.\n' +
+        'Collected using AccessibilityService API: Yes.\n' +
+        'What: Application package names (app identifiers) of apps opened on the device, used to identify which app is in the foreground.\n' +
+        'Purpose: App usage reports, app blocking rules, and child safety monitoring for the linked parent account.\n' +
+        'Note: This does not mean reading advertising IDs; the identifiers used here are app package names observed through AccessibilityService API events.',
+    },
+    {
+      heading: 'Approximate location',
+      body:
+        'Data type: Approximate location.\n' +
+        'Collected using AccessibilityService API: No.\n' +
+        'What: Approximate location is not collected through the AccessibilityService API.\n' +
+        'How location is collected (separate permission): Only when Android Location permission is granted (Live Location flow).\n' +
+        'Purpose of location (when enabled): Parental tracking for child safety, independent of AccessibilityService API.',
     },
     {
       heading: 'SMS or MMS messages',
@@ -189,5 +280,5 @@ export const ACCESSIBILITY_DISCLOSURE = {
     },
   ],
   checkboxLabel:
-    'I have read this AccessibilityService API disclosure. I understand the app\'s use of: Other actions, Web browsing history, Emails, Precise location, Crash logs, SMS or MMS messages, Name, Email address, Personal identifiers, Address, Phone number, and Other user-generated content. I consent to parental control and child safety use as described.',
+    'I have read this AccessibilityService API disclosure. I understand the app\'s use of: Other actions, Web browsing history, Emails, Precise location, Approximate location, Crash logs, Diagnostics, Other app performance data, Device or other identifiers, SMS or MMS messages, Name, Email address, Personal identifiers, Address, Phone number, and Other user-generated content. I consent to parental control and child safety use as described.',
 };
