@@ -1,15 +1,22 @@
 package com.kto_kids
 
+import android.app.Activity
 import android.content.Intent
 import android.Manifest
+import android.content.IntentSender
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.ContextCompat
+import com.google.android.gms.common.api.ResolvableApiException
+import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.LocationSettingsRequest
 import com.google.android.gms.location.Priority
+import com.google.android.gms.location.SettingsClient
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.gms.tasks.Tasks
+import com.facebook.react.bridge.BaseActivityEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
@@ -20,11 +27,43 @@ import com.facebook.react.bridge.ReactMethod
 class DeviceAccessModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
 
+  private val locationSettingsRequestCode = 0x7e11
+  private var pendingLocationSettings: Promise? = null
+
+  private val activityListener =
+    object : BaseActivityEventListener() {
+      override fun onActivityResult(
+        activity: Activity,
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?,
+      ) {
+        if (requestCode != locationSettingsRequestCode) return
+        val p = pendingLocationSettings ?: return
+        pendingLocationSettings = null
+        p.resolve(resultCode == Activity.RESULT_OK && isDeviceLocationOn())
+      }
+    }
+
   override fun getName() = "DeviceAccessModule"
 
   override fun initialize() {
     super.initialize()
     ReactContextHolder.set(reactContext)
+    reactContext.addActivityEventListener(activityListener)
+  }
+
+  private fun isDeviceLocationOn(): Boolean {
+    val lm =
+      reactContext.getSystemService(android.content.Context.LOCATION_SERVICE)
+        as android.location.LocationManager
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      lm.isLocationEnabled
+    } else {
+      @Suppress("DEPRECATION")
+      lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) ||
+        lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+    }
   }
 
   @ReactMethod
@@ -250,6 +289,90 @@ class DeviceAccessModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun isLocationEnabled(promise: Promise) {
+    try {
+      promise.resolve(isDeviceLocationOn())
+    } catch (e: Exception) {
+      promise.reject("E_LOCATION_STATUS", e.message, e)
+    }
+  }
+
+  @ReactMethod
+  fun openLocationSettings() {
+    try {
+      val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      reactContext.startActivity(intent)
+    } catch (_: Exception) {
+      val fallback = Intent(Settings.ACTION_SETTINGS)
+      fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      reactContext.startActivity(fallback)
+    }
+  }
+
+  /**
+   * Ensures device Location/GPS is on. Shows Google Play services dialog when possible.
+   * Resolves true only when location services are actually enabled.
+   */
+  @ReactMethod
+  fun ensureDeviceLocationEnabled(promise: Promise) {
+    try {
+      if (isDeviceLocationOn()) {
+        promise.resolve(true)
+        return
+      }
+      if (pendingLocationSettings != null) {
+        promise.reject("E_PENDING", "Location settings request already in progress")
+        return
+      }
+
+      val activity = reactContext.currentActivity
+      if (activity == null) {
+        openLocationSettings()
+        promise.resolve(false)
+        return
+      }
+
+      val request =
+        LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10_000L)
+          .setMinUpdateIntervalMillis(5_000L)
+          .build()
+      val settingsRequest =
+        LocationSettingsRequest.Builder()
+          .addLocationRequest(request)
+          .setAlwaysShow(true)
+          .build()
+
+      pendingLocationSettings = promise
+      val client: SettingsClient = LocationServices.getSettingsClient(activity)
+      client
+        .checkLocationSettings(settingsRequest)
+        .addOnSuccessListener {
+          pendingLocationSettings = null
+          promise.resolve(isDeviceLocationOn())
+        }
+        .addOnFailureListener { e ->
+          if (e is ResolvableApiException) {
+            try {
+              e.startResolutionForResult(activity, locationSettingsRequestCode)
+            } catch (sendEx: IntentSender.SendIntentException) {
+              pendingLocationSettings = null
+              openLocationSettings()
+              promise.resolve(false)
+            }
+          } else {
+            pendingLocationSettings = null
+            openLocationSettings()
+            promise.resolve(false)
+          }
+        }
+    } catch (e: Exception) {
+      pendingLocationSettings = null
+      promise.reject("E_LOCATION_SETTINGS", e.message, e)
+    }
+  }
+
+  @ReactMethod
   fun getCurrentLocation(promise: Promise) {
     try {
       val fineGranted =
@@ -263,16 +386,7 @@ class DeviceAccessModule(private val reactContext: ReactApplicationContext) :
         return
       }
 
-      val lm = reactContext.getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
-      val locationEnabled =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-          lm.isLocationEnabled
-        } else {
-          @Suppress("DEPRECATION")
-          lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) ||
-            lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
-        }
-      if (!locationEnabled) {
+      if (!isDeviceLocationOn()) {
         promise.reject("E_LOCATION_DISABLED", "Location services are disabled")
         return
       }

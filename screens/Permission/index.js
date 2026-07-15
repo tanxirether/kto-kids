@@ -13,9 +13,10 @@ import {
   NativeModules,
   Alert,
   Platform,
+  Pressable,
 } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
-import { check, PERMISSIONS, RESULTS } from 'react-native-permissions'
+import { check, request, requestMultiple, PERMISSIONS, RESULTS, openSettings } from 'react-native-permissions'
 import { useFocusEffect } from '@react-navigation/native'
 import { Camera, useCameraDevice, useCameraFormat } from 'react-native-vision-camera'
 import ViewShot from 'react-native-view-shot'
@@ -25,7 +26,7 @@ import { register as registerCameraCapture, unregister as unregisterCameraCaptur
 import { getPending as getPendingCameraCapture, clearPending as clearPendingCameraCapture } from '../../services/PendingCameraCaptureManager'
 import { uploadCameraPhoto } from '../../services/CameraPhotoService'
 import { debugStartForegroundService, debugStopForegroundService } from '../../services/ForegroundServiceManager'
-import { isAccessibilityEnabled, openAccessibilitySettings, hasUsageAccess, openUsageAccessSettings } from '../../services/AccessibilityServiceBridge'
+import { isAccessibilityEnabled, openAccessibilitySettings, hasUsageAccess, openUsageAccessSettings, isDeviceLocationEnabled, openDeviceLocationSettings, ensureDeviceLocationEnabled } from '../../services/AccessibilityServiceBridge'
 import { getScreenShareState, startScreenShare, stopScreenShare } from '../../services/ScreenShareService'
 import { getScreenShareRuntimeState } from '../../services/ScreenShareService'
 import { getWebRTCScreenShareLogs } from '../../services/ScreenShareWebRTC'
@@ -34,6 +35,7 @@ import {
   ACCESSIBILITY_DISCLOSURE_KEY,
   DISCLOSURE_STORAGE_KEY,
   LOCATION_DISCLOSURE_KEY,
+  LIVE_LOCATION_FEATURE_KEY,
 } from '../../constants/monitoringDisclosure'
 
 const { ScreenLock, ScreenCaptureModule } = NativeModules
@@ -91,7 +93,7 @@ const Permission = ({ navigation, route }) => {
     React.useCallback(() => {
       let active = true
       ;(async () => {
-        // After LocationDisclosure consent, request system location first.
+        // After LocationDisclosure consent, request system location (do not redirect away).
         if (route?.params?.requestLiveLocation) {
           navigation.setParams({ requestLiveLocation: undefined })
           if (!active) return
@@ -103,13 +105,9 @@ const Permission = ({ navigation, route }) => {
         if (!active) return
         if (monitoringAccepted !== 'true') {
           navigation.replace('MonitoringDisclosure', { nextRoute: 'Permission' })
-          return
         }
-        const accessibilityAccepted = await AsyncStorage.getItem(ACCESSIBILITY_DISCLOSURE_KEY)
-        if (!active) return
-        if (accessibilityAccepted !== 'true') {
-          navigation.navigate('AccessibilityDisclosure')
-        }
+        // Do NOT auto-navigate to AccessibilityDisclosure here — it blocks Live Location
+        // and other toggles. Accessibility disclosure is shown when that toggle is pressed.
       })()
       return () => {
         active = false
@@ -209,18 +207,98 @@ const Permission = ({ navigation, route }) => {
       case "liveLocation": {
         let granted = false
         try {
-          const res = await PermissionsAndroid.request(
-            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-          )
-          granted = res === PermissionsAndroid.RESULTS.GRANTED
-          if (granted && Platform.OS === 'android' && Platform.Version >= 29) {
-            const bg = await PermissionsAndroid.request(
-              PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION
-            )
-            granted = bg === PermissionsAndroid.RESULTS.GRANTED
+          // Android 12+: request COARSE + FINE together so the system permission dialog appears.
+          const currentFine = await check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION)
+          const currentCoarse = await check(PERMISSIONS.ANDROID.ACCESS_COARSE_LOCATION)
+          let fineOk =
+            currentFine === RESULTS.GRANTED || currentCoarse === RESULTS.GRANTED
+
+          if (!fineOk) {
+            const results = await requestMultiple([
+              PERMISSIONS.ANDROID.ACCESS_COARSE_LOCATION,
+              PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION,
+            ])
+            fineOk =
+              results[PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION] === RESULTS.GRANTED ||
+              results[PERMISSIONS.ANDROID.ACCESS_COARSE_LOCATION] === RESULTS.GRANTED
+
+            const blocked =
+              results[PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION] === RESULTS.BLOCKED ||
+              results[PERMISSIONS.ANDROID.ACCESS_COARSE_LOCATION] === RESULTS.BLOCKED
+
+            if (!fineOk && blocked) {
+              Alert.alert(
+                'Location permission',
+                'Location permission is blocked. Enable “Location” for K.T.O Kids in Android Settings → Apps → Permissions.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Open Settings', onPress: () => openSettings() },
+                ]
+              )
+            } else if (!fineOk) {
+              // Fallback dialog via PermissionsAndroid if RN permissions returned denied without UI
+              const fallback = await PermissionsAndroid.requestMultiple([
+                PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+                PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+              ])
+              fineOk =
+                fallback[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] ===
+                  PermissionsAndroid.RESULTS.GRANTED ||
+                fallback[PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION] ===
+                  PermissionsAndroid.RESULTS.GRANTED
+            }
+          }
+
+          granted = fineOk
+
+          if (fineOk && Platform.OS === 'android' && Platform.Version >= 29) {
+            const bgStatus = await check(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION)
+            if (bgStatus !== RESULTS.GRANTED) {
+              const bg = await request(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION)
+              if (bg !== RESULTS.GRANTED) {
+                Alert.alert(
+                  'Background location',
+                  'For live tracking when the app is closed, set Location to “Allow all the time” in Settings.',
+                  [
+                    { text: 'Not now', style: 'cancel' },
+                    { text: 'Open Settings', onPress: () => openSettings() },
+                  ]
+                )
+              }
+            }
+            // Foreground location is enough to enable Live Location toggle.
+            granted = true
+          }
+
+          if (granted) {
+            // Phone Location/GPS must be ON — show system dialog; keep switch OFF if user cancels.
+            const deviceOn = await ensureDeviceLocationEnabled()
+            if (!deviceOn) {
+              const stillOff = !(await isDeviceLocationEnabled())
+              if (stillOff) {
+                Alert.alert(
+                  'Location is still off',
+                  'Live Location cannot stay on until phone Location/GPS is turned on.',
+                  [
+                    { text: 'OK', style: 'cancel' },
+                    { text: 'Open Location settings', onPress: () => openDeviceLocationSettings() },
+                  ]
+                )
+                granted = false
+              }
+            }
           }
         } catch (e) {
           console.warn('Location permission request failed', e)
+          Alert.alert('Location error', e?.message || 'Could not request location permission')
+        }
+        try {
+          await AsyncStorage.setItem(
+            LIVE_LOCATION_FEATURE_KEY,
+            granted ? 'true' : 'false'
+          )
+        } catch {
+          // best effort
         }
         updatePermission(key, granted)
         break
@@ -271,6 +349,18 @@ const Permission = ({ navigation, route }) => {
 
   const handlePermission = async (key) => {
     const turningOn = !permissions[key]
+
+    // Turning Live Location OFF: only disable in-app feature (OS cannot revoke from here).
+    if (!turningOn && key === 'liveLocation') {
+      try {
+        await AsyncStorage.setItem(LIVE_LOCATION_FEATURE_KEY, 'false')
+      } catch {
+        // best effort
+      }
+      updatePermission('liveLocation', false)
+      return
+    }
+
     if (turningOn && key === 'accessibilityService') {
       const accepted = await AsyncStorage.getItem(ACCESSIBILITY_DISCLOSURE_KEY)
       if (accepted !== 'true') {
@@ -296,22 +386,30 @@ const Permission = ({ navigation, route }) => {
   /* ================= RECHECK PERMISSIONS ================= */
 
   const recheckPermissions = async () => {
-    const [camera, audio, fineLocation, bgLocation, accEnabled, usageAccess] = await Promise.all([
-      check(PERMISSIONS.ANDROID.CAMERA),
-      check(PERMISSIONS.ANDROID.RECORD_AUDIO),
-      check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION),
-      Platform.OS === 'android' && Platform.Version >= 29
-        ? check(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION).catch(() => RESULTS.DENIED)
-        : Promise.resolve(RESULTS.GRANTED),
-      isAccessibilityEnabled().catch(() => false),
-      hasUsageAccess().catch(() => false),
-    ])
+    const [camera, audio, fineLocation, bgLocation, accEnabled, usageAccess, liveFeature] =
+      await Promise.all([
+        check(PERMISSIONS.ANDROID.CAMERA),
+        check(PERMISSIONS.ANDROID.RECORD_AUDIO),
+        check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION),
+        Platform.OS === 'android' && Platform.Version >= 29
+          ? check(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION).catch(() => RESULTS.DENIED)
+          : Promise.resolve(RESULTS.GRANTED),
+        isAccessibilityEnabled().catch(() => false),
+        hasUsageAccess().catch(() => false),
+        AsyncStorage.getItem(LIVE_LOCATION_FEATURE_KEY).catch(() => null),
+      ])
 
     updatePermission("remoteCamera", camera === RESULTS.GRANTED)
     updatePermission("oneWayAudio", audio === RESULTS.GRANTED)
+    // Fine location is enough to show Live Location ON; background is requested when possible.
+    const osLocationGranted = fineLocation === RESULTS.GRANTED
+    // User can turn Live Location off in-app even if Android permission remains granted.
+    // null/unset = treat as on when OS granted (first-time / after grant).
+    const liveFeatureOn = liveFeature !== 'false'
+    const deviceLocationOn = await isDeviceLocationEnabled().catch(() => true)
     updatePermission(
-      "liveLocation",
-      fineLocation === RESULTS.GRANTED && bgLocation === RESULTS.GRANTED
+      'liveLocation',
+      osLocationGranted && liveFeatureOn && deviceLocationOn
     )
     updatePermission("accessibilityService", Boolean(accEnabled))
     updatePermission("usageReport", Boolean(usageAccess))
@@ -530,7 +628,10 @@ const Permission = ({ navigation, route }) => {
   /* ================= UI ITEM ================= */
 
   const PermissionItem = ({ title, subtitle, permissionKey, iconName }) => (
-    <View style={styles.permissionItem}>
+    <Pressable
+      style={styles.permissionItem}
+      onPress={() => handlePermission(permissionKey)}
+    >
       <View style={styles.permissionLeft}>
         <View style={styles.iconWrap}>
           <MaterialCommunityIcons name={iconName} size={22} color="#7C3AED" />
@@ -546,7 +647,7 @@ const Permission = ({ navigation, route }) => {
         trackColor={{ false: '#E0E0E0', true: '#9B1FE8' }}
         thumbColor="#FFFFFF"
       />
-    </View>
+    </Pressable>
   )
 
   /* ================= RENDER ================= */

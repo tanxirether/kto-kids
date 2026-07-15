@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AppState, Platform } from "react-native";
 import instance from "../api/api_instance";
+import { LIVE_LOCATION_FEATURE_KEY } from "../constants/monitoringDisclosure";
 import { getCurrentLocation } from "./AccessibilityServiceBridge";
 import { recordActivitiesSyncSuccess, recordLocationSyncSuccess } from "./MonitoringSnapshotService";
 
@@ -62,6 +63,8 @@ async function tick() {
   if (stopped || inFlight || Platform.OS !== "android") return;
   inFlight = true;
   try {
+    const featureOn = (await AsyncStorage.getItem(LIVE_LOCATION_FEATURE_KEY)) !== "false";
+    if (!featureOn) return;
     const trackId = String((await AsyncStorage.getItem("trackid")) || "").trim();
     if (!trackId) return;
     const location = await getCurrentLocation().catch(() => null);
@@ -79,6 +82,8 @@ async function tick() {
 
 export async function syncLocationNow({ force = false } = {}) {
   if (Platform.OS !== "android") return false;
+  const featureOn = (await AsyncStorage.getItem(LIVE_LOCATION_FEATURE_KEY)) !== "false";
+  if (!featureOn) return false;
   const trackId = String((await AsyncStorage.getItem("trackid")) || "").trim();
   if (!trackId) return false;
   const location = await getCurrentLocation().catch(() => null);

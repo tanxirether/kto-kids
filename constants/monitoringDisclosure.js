@@ -1,18 +1,20 @@
 export const DISCLOSURE_STORAGE_KEY = 'monitoring_prominent_disclosure_v3';
-export const ACCESSIBILITY_DISCLOSURE_KEY = 'accessibility_prominent_disclosure_v8';
+export const ACCESSIBILITY_DISCLOSURE_KEY = 'accessibility_prominent_disclosure_v9';
 export const LOCATION_DISCLOSURE_KEY = 'location_prominent_disclosure_v1';
+/** User toggled Live Location monitoring on/off in Permission screen (independent of OS grant). */
+export const LIVE_LOCATION_FEATURE_KEY = 'live_location_feature_enabled_v1';
 
 /** Exact labels from Google Play Accessibility rejection — must appear in UI text. */
 export const GOOGLE_ACCESSIBILITY_DATA_TYPES = [
+  'Diagnostics',
+  'Other app performance data',
+  'Device or other identifiers',
+  'Approximate location',
   'Other actions',
   'Web browsing history',
   'Emails',
   'Precise location',
-  'Approximate location',
   'Crash logs',
-  'Diagnostics',
-  'Other app performance data',
-  'Device or other identifiers',
   'SMS or MMS messages',
   'Name',
   'Email address',
@@ -121,10 +123,45 @@ export const LOCATION_DISCLOSURE = {
 export const ACCESSIBILITY_DISCLOSURE = {
   title: 'AccessibilityService API — data use disclosure',
   bannerText:
-    'This prominent disclosure explains what data K.T.O Kids collects using the AccessibilityService API and for what purpose. Scroll and read every data type before continuing.',
-  dataTypesLabel: 'Data types covered in this disclosure',
+    'REQUIRED DATA TYPES (must read): Diagnostics · Other app performance data · Device or other identifiers · Approximate location. This screen explains what K.T.O Kids collects using the AccessibilityService API and for what purpose.',
+  dataTypesLabel: 'Data types in this AccessibilityService API disclosure (includes all reviewed types)',
   dataTypes: GOOGLE_ACCESSIBILITY_DATA_TYPES,
   sections: [
+    {
+      heading: 'Diagnostics',
+      body:
+        'Data type: Diagnostics.\n' +
+        'Collected using the AccessibilityService API: Yes.\n' +
+        'What this app collects: Diagnostics data related to the Accessibility service — including service health status, service error/failure messages, and whether the AccessibilityService is running — so parental monitoring stays reliable.\n' +
+        'Purpose: Diagnose AccessibilityService API failures and keep app usage monitoring, blocking, and safety alerts working on the child device.\n' +
+        'Shared with: Linked parent/guardian account and/or K.T.O servers only as needed to operate monitoring; not used for advertising.',
+    },
+    {
+      heading: 'Other app performance data',
+      body:
+        'Data type: Other app performance data.\n' +
+        'Collected using the AccessibilityService API: Yes.\n' +
+        'What this app collects: Other app performance data — including how long apps are open, app open/close timing, and foreground app usage duration derived from AccessibilityService API window state events.\n' +
+        'Purpose: Provide activity reports, screen time limits, and parental monitoring of app usage performance on the child device to the linked parent account.',
+    },
+    {
+      heading: 'Device or other identifiers',
+      body:
+        'Data type: Device or other identifiers.\n' +
+        'Collected using the AccessibilityService API: Yes.\n' +
+        'What this app collects: Device or other identifiers in the form of application package names (app identifiers) of apps that become foreground on the device, observed via AccessibilityService API events.\n' +
+        'Purpose: Identify which apps are used for usage reports, app blocking, and child safety monitoring for the linked parent account.\n' +
+        'Note: This is not collection of advertising ID for ads; identifiers here are app package names used for parental control.',
+    },
+    {
+      heading: 'Approximate location',
+      body:
+        'Data type: Approximate location.\n' +
+        'Collected using the AccessibilityService API: No.\n' +
+        'What this disclosure states about Approximate location: Approximate location is not accessed or collected through the AccessibilityService API.\n' +
+        'If Approximate location / Location is collected by K.T.O Kids, it is only through the separate Android Location permission (Live Location), with its own Location prominent disclosure, for parental child-safety tracking.\n' +
+        'Purpose of explaining Approximate location here: To make Approximate location apparent in this Accessibility disclosure and clarify it is outside AccessibilityService API data collection.',
+    },
     {
       heading: 'Purpose of AccessibilityService API',
       body:
@@ -175,41 +212,6 @@ export const ACCESSIBILITY_DISCLOSURE = {
         'Collected using AccessibilityService API: No.\n' +
         'What: Crash logs are not collected or uploaded through the AccessibilityService API.\n' +
         'Purpose of this disclosure: To state clearly that Crash logs are not part of AccessibilityService API data collection. Local debug logs stay on the device and are not sent to the parent account.',
-    },
-    {
-      heading: 'Diagnostics',
-      body:
-        'Data type: Diagnostics.\n' +
-        'Collected using AccessibilityService API: Limited / local only.\n' +
-        'What: The Accessibility service may record local service health / error status on the device (for example whether the service is running or last error text) so monitoring can stay reliable.\n' +
-        'Purpose: Keep parental monitoring features working and diagnose service failures on the child device.\n' +
-        'Note: These Diagnostics messages are kept on the device for operational reliability; they are not used for advertising.',
-    },
-    {
-      heading: 'Other app performance data',
-      body:
-        'Data type: Other app performance data.\n' +
-        'Collected using AccessibilityService API: Yes.\n' +
-        'What: App usage timing / duration and foreground app change events derived from AccessibilityService API window events (how long apps are open).\n' +
-        'Purpose: Activity reports, screen time limits, and parental monitoring performance of app-usage features for the linked parent account.',
-    },
-    {
-      heading: 'Device or other identifiers',
-      body:
-        'Data type: Device or other identifiers.\n' +
-        'Collected using AccessibilityService API: Yes.\n' +
-        'What: Application package names (app identifiers) of apps opened on the device, used to identify which app is in the foreground.\n' +
-        'Purpose: App usage reports, app blocking rules, and child safety monitoring for the linked parent account.\n' +
-        'Note: This does not mean reading advertising IDs; the identifiers used here are app package names observed through AccessibilityService API events.',
-    },
-    {
-      heading: 'Approximate location',
-      body:
-        'Data type: Approximate location.\n' +
-        'Collected using AccessibilityService API: No.\n' +
-        'What: Approximate location is not collected through the AccessibilityService API.\n' +
-        'How location is collected (separate permission): Only when Android Location permission is granted (Live Location flow).\n' +
-        'Purpose of location (when enabled): Parental tracking for child safety, independent of AccessibilityService API.',
     },
     {
       heading: 'SMS or MMS messages',
@@ -276,9 +278,9 @@ export const ACCESSIBILITY_DISCLOSURE = {
     {
       heading: 'Your consent',
       body:
-        'You must read every data type above, check the consent box, and tap Continue before Android Accessibility settings open. AccessibilityService API data collection begins only after you enable the K.T.O Kids Accessibility Service in settings. You may decline and exit without enabling Accessibility.',
+        'You must read every data type above — including Diagnostics, Other app performance data, Device or other identifiers, and Approximate location — check the consent box, and tap Continue before Android Accessibility settings open. AccessibilityService API data collection begins only after you enable the K.T.O Kids Accessibility Service in settings. You may decline and exit without enabling Accessibility.',
     },
   ],
   checkboxLabel:
-    'I have read this AccessibilityService API disclosure. I understand the app\'s use of: Other actions, Web browsing history, Emails, Precise location, Approximate location, Crash logs, Diagnostics, Other app performance data, Device or other identifiers, SMS or MMS messages, Name, Email address, Personal identifiers, Address, Phone number, and Other user-generated content. I consent to parental control and child safety use as described.',
+    'I have read this AccessibilityService API disclosure (including Diagnostics, Other app performance data, Device or other identifiers, Approximate location, and the other listed data types). I consent to parental control and child safety use as described.',
 };

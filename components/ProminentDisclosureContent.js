@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 /**
  * Full-screen prominent disclosure (Google Play User Data / Accessibility API policy).
- * Not a bottom sheet — occupies the entire screen before sensitive permissions.
+ * Header + body scroll together; only checkbox/actions stay pinned at the bottom.
  */
 export default function ProminentDisclosureContent({
   title,
@@ -39,11 +39,11 @@ export default function ProminentDisclosureContent({
     const c = contentH.current;
     const l = layoutH.current;
     if (!c || !l) return;
-    if (c <= l + 8) {
+    if (c <= l + 12) {
       setScrolledToEnd(true);
       return;
     }
-    if (l + offsetY >= c - 48) setScrolledToEnd(true);
+    if (l + offsetY >= c - 56) setScrolledToEnd(true);
   };
 
   React.useEffect(() => {
@@ -56,22 +56,13 @@ export default function ProminentDisclosureContent({
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <View style={styles.banner}>
-        <Text style={styles.bannerText}>{bannerText}</Text>
-      </View>
-      <Text style={styles.title}>{title}</Text>
-      {Array.isArray(dataTypes) && dataTypes.length > 0 ? (
-        <View style={styles.dataTypesBox}>
-          <Text style={styles.dataTypesLabel}>
-            {dataTypesLabel || 'Data types in this disclosure'}
-          </Text>
-          <Text style={styles.dataTypesList}>{dataTypes.join(' · ')}</Text>
-        </View>
-      ) : null}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+        bounces
         onScroll={({ nativeEvent }) => {
           recomputeScrollEnd(nativeEvent.contentOffset.y);
         }}
@@ -85,43 +76,63 @@ export default function ProminentDisclosureContent({
         }}
         scrollEventThrottle={16}
       >
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{bannerText}</Text>
+        </View>
+        <Text style={styles.title}>{title}</Text>
+        {Array.isArray(dataTypes) && dataTypes.length > 0 ? (
+          <View style={styles.dataTypesBox}>
+            <Text style={styles.dataTypesLabel}>
+              {dataTypesLabel || 'Data types in this disclosure'}
+            </Text>
+            <Text style={styles.dataTypesList}>
+              {'• ' + dataTypes.join('\n• ')}
+            </Text>
+          </View>
+        ) : null}
         {(sections || []).map((section) => (
           <View key={section.heading} style={styles.section}>
             <Text style={styles.heading}>{section.heading}</Text>
             <Text style={styles.body}>{section.body}</Text>
           </View>
         ))}
+        {requireScrollToEnd ? (
+          <Text style={styles.endMarker}>— End of disclosure —</Text>
+        ) : null}
       </ScrollView>
-      {requireScrollToEnd && !scrolledToEnd ? (
-        <Text style={styles.scrollHint}>
-          Scroll down to read every AccessibilityService API data type before continuing.
-        </Text>
-      ) : null}
-      <Pressable
-        style={styles.checkboxRow}
-        onPress={() => setChecked((v) => !v)}
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked }}
-      >
-        <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
-          {checked ? <Text style={styles.checkmark}>✓</Text> : null}
-        </View>
-        <Text style={styles.checkboxLabel}>{checkboxLabel}</Text>
-      </Pressable>
-      <View style={styles.actions}>
-        <TouchableOpacity style={styles.declineBtn} onPress={onDecline}>
-          <Text style={styles.declineText}>{declineLabel}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.acceptBtn, !canAccept && styles.acceptBtnDisabled]}
-          onPress={() => {
-            if (!canAccept) return;
-            onAccept?.();
-          }}
-          disabled={!canAccept}
+
+      <View style={styles.footer}>
+        {requireScrollToEnd && !scrolledToEnd ? (
+          <Text style={styles.scrollHint}>
+            Scroll down to the end of this disclosure before continuing.
+          </Text>
+        ) : null}
+        <Pressable
+          style={styles.checkboxRow}
+          onPress={() => setChecked((v) => !v)}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked }}
         >
-          <Text style={styles.acceptText}>{acceptLabel}</Text>
-        </TouchableOpacity>
+          <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
+            {checked ? <Text style={styles.checkmark}>✓</Text> : null}
+          </View>
+          <Text style={styles.checkboxLabel}>{checkboxLabel}</Text>
+        </Pressable>
+        <View style={styles.actions}>
+          <TouchableOpacity style={styles.declineBtn} onPress={onDecline}>
+            <Text style={styles.declineText}>{declineLabel}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.acceptBtn, !canAccept && styles.acceptBtnDisabled]}
+            onPress={() => {
+              if (!canAccept) return;
+              onAccept?.();
+            }}
+            disabled={!canAccept}
+          >
+            <Text style={styles.acceptText}>{acceptLabel}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -131,7 +142,16 @@ const styles = StyleSheet.create({
   safe: {
     flex: 1,
     backgroundColor: '#FFFFFF',
+  },
+  scroll: {
+    flex: 1,
+    minHeight: 120,
+  },
+  scrollContent: {
     paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 24,
+    flexGrow: 1,
   },
   banner: {
     backgroundColor: '#FEF3C7',
@@ -139,7 +159,6 @@ const styles = StyleSheet.create({
     borderColor: '#F59E0B',
     borderRadius: 10,
     padding: 12,
-    marginTop: 8,
     marginBottom: 8,
   },
   bannerText: {
@@ -161,25 +180,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D1D5DB',
     padding: 10,
-    marginBottom: 8,
+    marginBottom: 12,
   },
   dataTypesLabel: {
     fontSize: 12,
     fontWeight: '800',
     color: '#111827',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   dataTypesList: {
     fontSize: 12,
     lineHeight: 18,
     fontWeight: '600',
     color: '#1F2937',
-  },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 16,
   },
   section: {
     marginBottom: 16,
@@ -198,10 +211,32 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: '#374151',
   },
+  endMarker: {
+    textAlign: 'center',
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  footer: {
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 8,
+    backgroundColor: '#FFFFFF',
+  },
+  scrollHint: {
+    fontSize: 13,
+    color: '#B45309',
+    fontWeight: '600',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
   checkboxRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginTop: 8,
     marginBottom: 12,
   },
   checkbox: {
@@ -226,25 +261,17 @@ const styles = StyleSheet.create({
   checkboxLabel: {
     flex: 1,
     fontSize: 13,
-    lineHeight: 20,
+    lineHeight: 19,
     color: '#111827',
     fontWeight: '600',
-  },
-  scrollHint: {
-    fontSize: 13,
-    color: '#B45309',
-    fontWeight: '600',
-    marginBottom: 8,
-    textAlign: 'center',
   },
   actions: {
     flexDirection: 'row',
     gap: 10,
-    paddingBottom: 8,
   },
   declineBtn: {
     flex: 1,
-    paddingVertical: 15,
+    paddingVertical: 14,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#D1D5DB',
@@ -257,7 +284,7 @@ const styles = StyleSheet.create({
   },
   acceptBtn: {
     flex: 1.5,
-    paddingVertical: 15,
+    paddingVertical: 14,
     borderRadius: 12,
     backgroundColor: '#9B1FE8',
     alignItems: 'center',

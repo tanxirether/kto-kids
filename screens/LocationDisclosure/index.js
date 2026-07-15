@@ -21,7 +21,7 @@ export default function LocationDisclosure({ navigation }) {
       sections={LOCATION_DISCLOSURE.sections}
       checkboxLabel={LOCATION_DISCLOSURE.checkboxLabel}
       acceptLabel="I agree — enable Live Location"
-      requireScrollToEnd
+      requireScrollToEnd={false}
       onDecline={() => navigation.goBack()}
       onAccept={handleAccept}
     />

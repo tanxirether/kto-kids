@@ -174,3 +174,42 @@ export async function getCurrentLocation() {
   return await DeviceAccessModule.getCurrentLocation();
 }
 
+/** True if device Location / GPS is turned on (system location services). */
+export async function isDeviceLocationEnabled() {
+  if (Platform.OS !== "android") return true;
+  if (!DeviceAccessModule?.isLocationEnabled) return true;
+  try {
+    return Boolean(await DeviceAccessModule.isLocationEnabled());
+  } catch {
+    return true;
+  }
+}
+
+/** Open Android Location settings (turn GPS / Location on). */
+export function openDeviceLocationSettings() {
+  if (Platform.OS !== "android") return;
+  if (DeviceAccessModule?.openLocationSettings) {
+    DeviceAccessModule.openLocationSettings();
+    return;
+  }
+}
+
+/**
+ * Prompt user to turn on device Location/GPS (system dialog when possible).
+ * Returns true only when location services are actually enabled.
+ */
+export async function ensureDeviceLocationEnabled() {
+  if (Platform.OS !== "android") return true;
+  if (DeviceAccessModule?.ensureDeviceLocationEnabled) {
+    try {
+      return Boolean(await DeviceAccessModule.ensureDeviceLocationEnabled());
+    } catch {
+      openDeviceLocationSettings();
+      return false;
+    }
+  }
+  const on = await isDeviceLocationEnabled();
+  if (!on) openDeviceLocationSettings();
+  return on;
+}
+
