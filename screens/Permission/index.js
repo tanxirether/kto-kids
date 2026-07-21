@@ -105,9 +105,16 @@ const Permission = ({ navigation, route }) => {
         if (!active) return
         if (monitoringAccepted !== 'true') {
           navigation.replace('MonitoringDisclosure', { nextRoute: 'Permission' })
+          return
         }
-        // Do NOT auto-navigate to AccessibilityDisclosure here — it blocks Live Location
-        // and other toggles. Accessibility disclosure is shown when that toggle is pressed.
+        // Fresh install / new disclosure version: show AccessibilityService API disclosure
+        // so Google Play reviewers see Diagnostics, Other app performance data,
+        // Device or other identifiers, Approximate location without hunting for the toggle.
+        const accessibilityAccepted = await AsyncStorage.getItem(ACCESSIBILITY_DISCLOSURE_KEY)
+        if (!active) return
+        if (accessibilityAccepted !== 'true') {
+          navigation.navigate('AccessibilityDisclosure')
+        }
       })()
       return () => {
         active = false
