@@ -63,9 +63,9 @@ MONITORING TOOL DECLARATION
 K.T.O Kids is a parental monitoring application (monitoring tool) installed on a child's device. It is not designed for covert surveillance. A parent or legal guardian must pair the device and consent to monitoring features.
 
 Manifest (required for Google Play):
-1. <meta-data android:name="isMonitoringTool" android:value="child_monitoring" /> under <manifest>
-2. <meta-data android:name="isMonitoringTool" android:value="child_monitoring" /> under <application>
-(Do not use android:isMonitoringTool on <application> — it breaks AAPT on current SDK.)
+Inside <application>, as early as possible:
+<meta-data android:name="isMonitoringTool" android:value="child_monitoring" />
+(Do not use android:isMonitoringTool on <application> — AAPT on current build-tools does not define that attribute yet.)
 
 K.T.O helps families create a safer digital environment by giving parents the tools they need to protect and guide their children online.
 
