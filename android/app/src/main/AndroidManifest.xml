@@ -1,108 +1,150 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-<!-- <uses-permission android:name="android.permission.CAMERA" /> -->
-<!-- <uses-permission android:name="android.permission.RECORD_AUDIO" /> -->
-<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-<uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-<!-- Optional: app still installs on devices without GPS -->
-<uses-feature android:name="android.hardware.location" android:required="false" />
-<uses-feature android:name="android.hardware.location.gps" android:required="false" />
-<uses-feature android:name="android.hardware.location.network" android:required="false" />
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-<uses-permission
-    android:name="android.permission.PACKAGE_USAGE_STATS"
-    tools:ignore="ProtectedPermissions" />
 
+    <!-- Camera and audio permissions -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- Location permissions -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <!-- Location hardware is optional -->
+    <uses-feature
+        android:name="android.hardware.location"
+        android:required="false" />
+
+    <uses-feature
+        android:name="android.hardware.location.gps"
+        android:required="false" />
+
+    <uses-feature
+        android:name="android.hardware.location.network"
+        android:required="false" />
+
+    <!-- Foreground service permissions -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!-- General permissions -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Usage Access special permission -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
     <application
-      android:name=".MainApplication"
-      android:label="@string/app_name"
-      android:icon="@mipmap/ic_launcher"
-      android:roundIcon="@mipmap/ic_launcher"
-      android:allowBackup="false"
-      android:theme="@style/AppTheme"
-      android:usesCleartextTraffic="${usesCleartextTraffic}"
-      android:supportsRtl="true">
-      <!-- Google Play Stalkerware policy (Play Help: isMonitoringTool meta-data) -->
-      <meta-data
-        android:name="isMonitoringTool"
-        android:value="child_monitoring" />
-      <activity
-        android:name=".BlockedAppActivity"
-        android:exported="false"
-        android:excludeFromRecents="true"
-        android:finishOnTaskLaunch="true"
-        android:launchMode="singleTask"
-        android:taskAffinity=""
-        android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
-      <activity
-        android:name=".MainActivity"
+        android:name=".MainApplication"
         android:label="@string/app_name"
-        android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
-        android:launchMode="singleTask"
-        android:windowSoftInputMode="adjustResize"
-        android:exported="true">
-        <intent-filter>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LAUNCHER" />
-        </intent-filter>
-        <!-- Manual Linking Step 1: Meta-data for Foreground Service Notification -->
-        <meta-data
-            android:name="com.supersami.foregroundservice.notification_channel_name"
-            android:value="Sticky Title"
-        />
-        <meta-data
-            android:name="com.supersami.foregroundservice.notification_channel_description"
-            android:value="Sticky Description."
-        />
-        <meta-data
-            android:name="com.supersami.foregroundservice.notification_color"
-            android:resource="@color/blue"
-        />
-      </activity>
-      <!-- Foreground Service declarations with foregroundServiceType for Android 14+ -->
-      <service android:name="com.supersami.foregroundservice.ForegroundService" android:foregroundServiceType="dataSync" />
-      <service android:name="com.supersami.foregroundservice.ForegroundServiceTask" android:foregroundServiceType="dataSync" />
-      <service
-        android:name=".ScreenShareForegroundService"
-        android:exported="false"
-        android:foregroundServiceType="mediaProjection|dataSync" />
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="${usesCleartextTraffic}"
+        android:supportsRtl="true">
 
-      <service
-        android:name=".MyAccessibilityService"
-        android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-        android:exported="true">
-        <intent-filter>
-          <action android:name="android.accessibilityservice.AccessibilityService" />
-        </intent-filter>
-
+        <!-- Google Play monitoring-tool declaration -->
         <meta-data
-          android:name="android.accessibilityservice"
-          android:resource="@xml/accessibility_service_config" />
-      </service>
+            android:name="isMonitoringTool"
+            android:value="child_monitoring" />
 
-      <service
-        android:name=".MonitoringSyncJobService"
-        android:permission="android.permission.BIND_JOB_SERVICE"
-        android:exported="false" />
+        <!-- Blocked application screen -->
+        <activity
+            android:name=".BlockedAppActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:finishOnTaskLaunch="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
 
-      <receiver
-        android:name=".BootCompletedReceiver"
-        android:enabled="true"
-        android:exported="true">
-        <intent-filter>
-          <action android:name="android.intent.action.BOOT_COMPLETED" />
-          <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
-          <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-          <action android:name="android.intent.action.USER_UNLOCKED" />
-        </intent-filter>
-      </receiver>
+        <!-- Main application activity -->
+        <activity
+            android:name=".MainActivity"
+            android:label="@string/app_name"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Foreground-service notification settings -->
+            <meta-data
+                android:name="com.supersami.foregroundservice.notification_channel_name"
+                android:value="Monitoring Active" />
+
+            <meta-data
+                android:name="com.supersami.foregroundservice.notification_channel_description"
+                android:value="Device monitoring is active." />
+
+            <meta-data
+                android:name="com.supersami.foregroundservice.notification_color"
+                android:resource="@color/blue" />
+        </activity>
+
+        <!-- Foreground service -->
+        <service
+            android:name="com.supersami.foregroundservice.ForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|location" />
+
+        <!-- Foreground service task -->
+        <service
+            android:name="com.supersami.foregroundservice.ForegroundServiceTask"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|location" />
+
+        <!-- Screen-sharing foreground service -->
+        <service
+            android:name=".ScreenShareForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection|dataSync" />
+
+        <!-- Accessibility service -->
+        <service
+            android:name=".MyAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- Background synchronization job -->
+        <service
+            android:name=".MonitoringSyncJobService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false" />
+
+        <!-- Starts required services after reboot/update -->
+        <receiver
+            android:name=".BootCompletedReceiver"
+            android:enabled="true"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.USER_UNLOCKED" />
+            </intent-filter>
+        </receiver>
+
     </application>
+
 </manifest>

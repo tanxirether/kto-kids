@@ -37,7 +37,7 @@ android {
         applicationId "com.kto_kids"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 23
+        versionCode 25
         versionName "1.1.4"
     }
 
