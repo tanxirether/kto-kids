@@ -8,7 +8,10 @@ import {
   processWebRTCSignal,
   stopWebRTCScreenShareRemotely,
   getWebRTCScreenShareHealth,
+  releaseScreenCapture,
 } from './ScreenShareWebRTC';
+
+export { configureScreenShareIceServers, releaseScreenCapture } from './ScreenShareWebRTC';
 
 const ScreenShareModule = NativeModules?.ScreenShareModule;
 const ScreenCaptureModule = NativeModules?.ScreenCaptureModule;
@@ -37,7 +40,10 @@ let currentRealtimeChannelNames = [];
 let appStateSubscription = null;
 let activeSession = null;
 let activeState = SCREEN_SHARE_STATES.IDLE;
-const seenEventKeys = new Set();
+// Dedupe window only: realtime channels deliver the same event on several channels at once.
+// Keys must expire, otherwise a restart that reuses the same ids is dropped forever.
+const EVENT_DEDUP_TTL_MS = 15000;
+const seenEventKeys = new Map();
 let waitingOfferTimer = null;
 let offerRecoveryTimer = null;
 let remoteRevisionSeen = '';
@@ -298,6 +304,15 @@ function matchesActiveSession(trackId, sessionId) {
   return String(activeSession.sessionId) === incomingSession;
 }
 
+// Forget everything tied to the previous session so a restart starts from a clean slate.
+function resetSessionMemory() {
+  seenEventKeys.clear();
+  statusSessionCache.clear();
+  statusSessionFetchBlockedUntilMs = 0;
+  remoteRevisionSeen = '';
+  pendingEarlyOffer = null;
+}
+
 async function stopActiveSession(reason = 'stopped', { notifyBackend = true } = {}) {
   if (!activeSession) return;
   console.log('ScreenShareService: stop/cleanup', {
@@ -311,7 +326,7 @@ async function stopActiveSession(reason = 'stopped', { notifyBackend = true } = 
   clearOfferRecoveryTimer();
   const toStop = { ...activeSession };
   activeSession = null;
-  pendingEarlyOffer = null;
+  resetSessionMemory();
   await stopWebRTCScreenShareSession().catch(() => {});
   await stopScreenShare({ trackId: toStop.trackId }).catch(() => {});
   if (notifyBackend) {
@@ -630,10 +645,12 @@ async function ensureRealtimeSubscription() {
       });
       channel.bind(eventName, async (payload) => {
         const dedupKey = buildEventKey(eventName, payload);
-        if (seenEventKeys.has(dedupKey)) return;
-        seenEventKeys.add(dedupKey);
+        const nowMs = Date.now();
+        const seenAtMs = seenEventKeys.get(dedupKey);
+        if (seenAtMs && nowMs - seenAtMs < EVENT_DEDUP_TTL_MS) return;
+        seenEventKeys.set(dedupKey, nowMs);
         if (seenEventKeys.size > 400) {
-          const first = seenEventKeys.values().next()?.value;
+          const first = seenEventKeys.keys().next()?.value;
           if (first) seenEventKeys.delete(first);
         }
         await handler(payload).catch((e) => {
@@ -702,28 +719,29 @@ export async function startScreenShare({
   }
 
   const safeIntervalMs = normalizeIntervalMs(intervalMs);
-  const safeSessionId = String(sessionId || `${resolvedTrackId}-${Date.now()}`);
+
+  if (!skipTransport) {
+    // Single session path: FCM start commands and realtime requests share the same
+    // lifecycle (dedupe, offer timeout, latest-offer recovery) via startRequestedSession.
+    try {
+      await startRequestedSession({
+        trackId: resolvedTrackId,
+        sessionId,
+        mediaType: 'screen',
+        intervalMs: safeIntervalMs,
+      });
+    } catch (e) {
+      await stopActiveSession('start-failed', { notifyBackend: false }).catch(() => {});
+      await ScreenShareModule.stopScreenShare().catch(() => {});
+      throw new Error(`Screen share transport failed: ${e?.message || e}`);
+    }
+    return { trackId: resolvedTrackId, active: true, intervalMs: safeIntervalMs };
+  }
 
   await ScreenShareModule.startScreenShare({
     trackId: resolvedTrackId,
     intervalMs: safeIntervalMs,
   });
-  if (!skipTransport) {
-    try {
-      await startWebRTCScreenShareSession({
-        trackId: resolvedTrackId,
-        sessionId: safeSessionId,
-        mediaType: 'screen',
-        onStateChange: setScreenShareState,
-        onConnected: () => setScreenShareState(SCREEN_SHARE_STATES.CONNECTED),
-        onError: onWebRTCSessionError,
-      });
-    } catch (e) {
-      // Keep foreground service in sync with media setup result.
-      await ScreenShareModule.stopScreenShare().catch(() => {});
-      throw new Error(`Screen share transport failed: ${e?.message || e}`);
-    }
-  }
   await syncScreenShareState(resolvedTrackId, true, safeIntervalMs).catch((e) => {
     console.warn('startScreenShare: backend sync failed', e?.message || e);
   });
@@ -753,6 +771,7 @@ export async function stopScreenShare({ trackId } = {}) {
   if (activeSession && String(activeSession.trackId) === String(resolvedTrackId)) {
     activeSession = null;
   }
+  resetSessionMemory();
   clearWaitingOfferTimer();
   clearOfferRecoveryTimer();
   setScreenShareState(SCREEN_SHARE_STATES.IDLE, { reason: 'child-ended' });
@@ -841,11 +860,10 @@ async function runtimeTick() {
     }
 
     if (activeSession) {
+      // The backend bumps `revision` on every signal (offer, ICE...), so a changed revision
+      // does not mean the session ended. Stopping on it killed live sessions ~1s after connect.
+      // A real stop is detected by `active === false` above or the session-stopped event.
       const nextRevision = String(state?.revision || '').trim();
-      if (nextRevision && remoteRevisionSeen && nextRevision !== remoteRevisionSeen) {
-        // Revision changed but realtime event could have been missed.
-        await stopActiveSession('revision-changed', { notifyBackend: false });
-      }
       remoteRevisionSeen = nextRevision || remoteRevisionSeen;
     }
   } catch (e) {
@@ -879,6 +897,8 @@ export function initScreenShareRuntime() {
     }
     clearWaitingOfferTimer();
     clearOfferRecoveryTimer();
+    // Monitoring turned off: end the kept-alive screen capture too.
+    releaseScreenCapture();
     for (const [name, channel] of realtimeChannels.entries()) {
       channel.unbind_all?.();
       if (realtimeClient) {

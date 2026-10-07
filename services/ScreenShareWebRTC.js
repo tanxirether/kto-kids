@@ -3,7 +3,19 @@ import instance from '../api/api_instance';
 
 const DEFAULT_ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
 const DEFAULT_OFFER_TIMEOUT_MS = 30000;
+const DISCONNECT_GRACE_MS = 8000;
+const ICE_SERVERS_ENDPOINT = '/screen-share/webrtc/ice-servers';
 
+// Android grants a screen-capture permission token once per capture. Keeping the capture
+// stream alive between sessions lets the next session reuse it without a new "Start now"
+// dialog. It is released after CAPTURE_KEEP_ALIVE_MS without a session; 0 = never auto-release
+// (only releaseScreenCapture(), app exit, or the user stopping the recording ends it).
+const CAPTURE_KEEP_ALIVE_MS = 0;
+let cachedScreenStream = null;
+let captureIdleTimer = null;
+
+let configuredIceServers = null;
+let disconnectTimer = null;
 let peerConnection = null;
 let localStream = null;
 let activeSession = null;
@@ -46,6 +58,41 @@ function clearOfferTimeout() {
     clearTimeout(offerTimeout);
     offerTimeout = null;
   }
+}
+
+function clearDisconnectTimer() {
+  if (disconnectTimer) {
+    clearTimeout(disconnectTimer);
+    disconnectTimer = null;
+  }
+}
+
+function isValidIceServerList(list) {
+  return Array.isArray(list) && list.length > 0 && list.every((s) => s && s.urls);
+}
+
+// Set TURN/STUN servers from app config, e.g. [{ urls: 'turn:host:3478', username, credential }].
+export function configureScreenShareIceServers(iceServers) {
+  configuredIceServers = isValidIceServerList(iceServers) ? iceServers : null;
+}
+
+// Priority: app config > backend-issued (short-lived TURN creds) > public STUN.
+async function resolveIceServers() {
+  if (configuredIceServers) return configuredIceServers;
+  try {
+    const res = await instance.get(ICE_SERVERS_ENDPOINT);
+    const list = res?.data?.data?.iceServers || res?.data?.iceServers;
+    if (isValidIceServerList(list)) return list;
+  } catch (e) {
+    const status = Number(e?.response?.status || 0);
+    if (status !== 404) {
+      logStep('ice servers fetch failed, using default STUN', {
+        status,
+        message: e?.message || String(e || ''),
+      });
+    }
+  }
+  return DEFAULT_ICE_SERVERS;
 }
 
 function candidateFingerprint(candidate) {
@@ -114,14 +161,64 @@ async function postSignal({
   throw lastError || new Error('Signal post failed');
 }
 
+function clearCaptureIdleTimer() {
+  if (captureIdleTimer) {
+    clearTimeout(captureIdleTimer);
+    captureIdleTimer = null;
+  }
+}
+
+function stopStreamTracks(stream) {
+  try {
+    stream?.getTracks?.().forEach((track) => {
+      try {
+        track.stop();
+      } catch {}
+    });
+  } catch {}
+}
+
+function hasLiveVideoTrack(stream) {
+  const tracks = stream?.getVideoTracks?.() || [];
+  return tracks.some((track) => String(track?.readyState || '') === 'live');
+}
+
+// Fully stops the kept-alive screen capture (the next session will ask permission again).
+export function releaseScreenCapture() {
+  clearCaptureIdleTimer();
+  const stream = cachedScreenStream;
+  cachedScreenStream = null;
+  if (stream && stream === localStream) localStream = null;
+  stopStreamTracks(stream);
+  logStep('screen capture released');
+}
+
+function scheduleCaptureRelease() {
+  clearCaptureIdleTimer();
+  if (CAPTURE_KEEP_ALIVE_MS <= 0) return;
+  captureIdleTimer = setTimeout(releaseScreenCapture, CAPTURE_KEEP_ALIVE_MS);
+}
+
 async function getLocalScreenStream() {
+  clearCaptureIdleTimer();
+  if (cachedScreenStream) {
+    if (hasLiveVideoTrack(cachedScreenStream)) {
+      logStep('reusing kept-alive screen capture');
+      return cachedScreenStream;
+    }
+    // User or system ended the capture (e.g. status-bar stop); permission is needed again.
+    cachedScreenStream = null;
+  }
+  let stream = null;
   if (typeof localScreenStreamProvider === 'function') {
-    return localScreenStreamProvider();
+    stream = await localScreenStreamProvider();
+  } else if (typeof mediaDevices?.getDisplayMedia === 'function') {
+    stream = await mediaDevices.getDisplayMedia({ video: true, audio: false });
+  } else {
+    throw new Error('Screen capture stream provider is not available');
   }
-  if (typeof mediaDevices?.getDisplayMedia === 'function') {
-    return mediaDevices.getDisplayMedia({ video: true, audio: false });
-  }
-  throw new Error('Screen capture stream provider is not available');
+  cachedScreenStream = stream;
+  return stream;
 }
 
 async function getLocalCameraStream() {
@@ -169,10 +266,21 @@ function wirePeerEvents() {
     logStep('peer connection state changed', { state });
     if (state === 'connecting') emitState('connecting');
     if (state === 'connected') {
+      clearDisconnectTimer();
       emitState('connected');
       onConnectedHandler?.();
     }
-    if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+    if (state === 'disconnected') {
+      // Often transient on mobile networks; only fail if it does not recover.
+      clearDisconnectTimer();
+      disconnectTimer = setTimeout(() => {
+        if (String(peerConnection?.connectionState || '') !== 'connected') {
+          onErrorHandler?.(new Error('Peer connection disconnected'));
+        }
+      }, DISCONNECT_GRACE_MS);
+    }
+    if (state === 'failed' || state === 'closed') {
+      clearDisconnectTimer();
       onErrorHandler?.(new Error(`Peer connection ${state}`));
     }
   };
@@ -184,6 +292,7 @@ async function cleanupTransport() {
     sessionId: activeSession?.sessionId || '',
   });
   clearOfferTimeout();
+  clearDisconnectTimer();
   try {
     if (peerConnection) {
       peerConnection.onicecandidate = null;
@@ -193,15 +302,14 @@ async function cleanupTransport() {
   } catch {}
   peerConnection = null;
 
-  try {
-    if (localStream) {
-      localStream.getTracks().forEach((track) => {
-        try {
-          track.stop();
-        } catch {}
-      });
+  if (localStream) {
+    if (localStream === cachedScreenStream) {
+      // Keep the capture running for the next session; it is released after the idle timeout.
+      scheduleCaptureRelease();
+    } else {
+      stopStreamTracks(localStream);
     }
-  } catch {}
+  }
   localStream = null;
   activeSession = null;
   emittedIceFingerprintSet.clear();
@@ -249,7 +357,7 @@ export async function startWebRTCScreenShareSession({
   trackId,
   sessionId,
   mediaType = 'screen',
-  iceServers = DEFAULT_ICE_SERVERS,
+  iceServers,
   offerTimeoutMs = DEFAULT_OFFER_TIMEOUT_MS,
   onStateChange,
   onError,
@@ -291,7 +399,8 @@ export async function startWebRTCScreenShareSession({
     videoTracks: extractVideoTrackSnapshot(localStream),
   });
 
-  peerConnection = new RTCPeerConnection({ iceServers });
+  const resolvedIceServers = isValidIceServerList(iceServers) ? iceServers : await resolveIceServers();
+  peerConnection = new RTCPeerConnection({ iceServers: resolvedIceServers });
   localStream.getTracks().forEach((track) => {
     peerConnection.addTrack(track, localStream);
   });

@@ -28,7 +28,11 @@ import { startPolicySync } from "./services/PolicySync";
 import { startLocationSync } from "./services/LocationSyncService";
 import { sendFamilyActivityAlert } from "./services/FamilyAlertNotification";
 import { recordKeywordActivityContext } from "./services/MonitoringSnapshotService";
-import { configureScreenShareRealtime, initScreenShareRuntime } from "./services/ScreenShareService";
+import {
+  configureScreenShareIceServers,
+  configureScreenShareRealtime,
+  initScreenShareRuntime,
+} from "./services/ScreenShareService";
 import { createMonitoringGate, hasMonitoringConsent } from "./services/MonitoringConsentGate";
 
 const Stack = createNativeStackNavigator();
@@ -108,6 +112,21 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // TEMPORARY test relay (shared public TURN, limited and not for production).
+    // Replace with your own TURN server or serve short-lived credentials from the backend
+    // (/screen-share/webrtc/ice-servers). Video stays DTLS-SRTP encrypted through the relay.
+    configureScreenShareIceServers([
+      { urls: "stun:stun.l.google.com:19302" },
+      {
+        urls: [
+          "turn:openrelay.metered.ca:80",
+          "turn:openrelay.metered.ca:443",
+          "turn:openrelay.metered.ca:443?transport=tcp",
+        ],
+        username: "openrelayproject",
+        credential: "openrelayproject",
+      },
+    ]);
     configureScreenShareRealtime({
       key: "deca346055651392a9a6",
       cluster: "ap4",

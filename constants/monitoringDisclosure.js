@@ -54,7 +54,7 @@ export const MONITORING_DISCLOSURE = {
         '• Foreground app names and app usage duration\n' +
         '• Photos from the device camera (when enabled by the parent)\n' +
         '• Microphone audio (when enabled by the parent)\n' +
-        '• Screen content during parent-initiated screen sharing (after on-device consent)\n' +
+        '• Screen content during parent-initiated screen sharing (after on-device consent). After a session ends, screen capture stays ready until the app is closed or the device restarts so the next session can start without asking again; the Android screen-recording indicator stays visible during that time\n' +
         '• Keyword safety alerts when configured text appears on screen\n' +
         '• Device and app status needed to keep monitoring active',
     },
