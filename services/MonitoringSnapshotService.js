@@ -264,7 +264,9 @@ async function uploadActivities(trackId, usageByPackage) {
         : {};
     const context = ownContext.website || ownContext.keywords ? ownContext : browserFallback;
     const now = new Date();
-    const activityDate = now.toISOString().slice(0, 10);
+    // Local calendar date (matches the on-device "today" usage day), not UTC.
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const activityDate = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
     const body = {
       trackId: String(trackId),
       appName: inferAppNameFromPackage(packageName),

@@ -72,7 +72,7 @@ export default function App() {
           sendFamilyActivityAlert();
         },
       });
-      const policyStop = startPolicySync({ intervalMs: 20000 });
+      const policyStop = startPolicySync({ intervalMs: 5000 });
       const locationStop = startLocationSync();
       const screenShareStop = initScreenShareRuntime();
 

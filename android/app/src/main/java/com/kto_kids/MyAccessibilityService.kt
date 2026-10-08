@@ -11,7 +11,15 @@ class MyAccessibilityService : AccessibilityService() {
   private var lastForegroundPackage: String? = null
   private var lastForegroundStartMs: Long = 0L
   private var lastKeywordAlertMs: Long = 0L
+  private var lastBlockRecheckMs: Long = 0L
+  private var lastUsageFlushMs: Long = 0L
   private val tag = "MyAccessibilityService"
+
+  private companion object {
+    const val BLOCK_RECHECK_THROTTLE_MS = 700L
+    const val USAGE_FLUSH_INTERVAL_MS = 5_000L
+    const val USAGE_FLUSH_MAX_GAP_MS = 60_000L
+  }
 
   override fun onServiceConnected() {
     try {
@@ -68,6 +76,21 @@ class MyAccessibilityService : AccessibilityService() {
         }
       }
 
+      // The app may already be open when the parent blocks it, so no window-state change fires.
+      // Re-check on other events too (throttled) so the block applies without leaving the app.
+      if (eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+        val now = System.currentTimeMillis()
+        if (now - lastBlockRecheckMs >= BLOCK_RECHECK_THROTTLE_MS) {
+          lastBlockRecheckMs = now
+          enforceIfBlocked(packageName)
+        }
+        // Usage is otherwise only recorded when the app is left, so a daily limit would never
+        // trigger while the child stays in one app. Record the running session periodically.
+        if (packageName == lastForegroundPackage) {
+          flushForegroundUsage(packageName, now)
+        }
+      }
+
       if (
         eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
           eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
@@ -85,6 +108,21 @@ class MyAccessibilityService : AccessibilityService() {
   }
 
   override fun onInterrupt() {}
+
+  private fun flushForegroundUsage(packageName: String, now: Long) {
+    if (packageName == this.packageName) return
+    if (now - lastUsageFlushMs < USAGE_FLUSH_INTERVAL_MS) return
+    lastUsageFlushMs = now
+    if (lastForegroundStartMs <= 0L) return
+
+    // Cap per flush so a long idle gap (screen off, no events) is not counted as usage.
+    val dt = (now - lastForegroundStartMs).coerceAtMost(USAGE_FLUSH_MAX_GAP_MS)
+    lastForegroundStartMs = now
+    if (dt <= 0L) return
+
+    AppUsageStore.addUsageMs(this, packageName, dt, now)
+    enforceIfTimeExceeded(packageName)
+  }
 
   private fun enforceIfBlocked(packageName: String) {
     // Don't block our own app; otherwise we'd lock ourselves out.

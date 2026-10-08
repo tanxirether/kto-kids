@@ -11,9 +11,9 @@ object AppUsageStore {
   private const val PREFS = "kto_kids_parental_controls"
   private const val KEY_USAGE_BY_DAY = "usage_by_day_json"
 
+  // Day boundary follows the device's local timezone (midnight), same as UsageStatsReader.
   private fun todayKey(nowMs: Long = System.currentTimeMillis()): String {
-    val sdf =
-      SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getDefault() }
     return sdf.format(Date(nowMs))
   }
 
