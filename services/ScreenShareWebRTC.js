@@ -237,6 +237,33 @@ async function createLocalStream(mediaType) {
   return getLocalScreenStream();
 }
 
+// Mic audio is one-way: device -> parent only. The parent never sends audio back,
+// so this track is only ever added on the device (child) side.
+let localMicStream = null;
+let micEnabled = false;
+
+export function setMicAudioEnabled(enabled) {
+  micEnabled = Boolean(enabled);
+}
+
+async function getLocalMicStream() {
+  if (localMicStream && localMicStream.getAudioTracks().some((t) => t.readyState === 'live')) {
+    return localMicStream;
+  }
+  if (typeof mediaDevices?.getUserMedia !== 'function') {
+    throw new Error('Microphone stream provider is not available');
+  }
+  localMicStream = await mediaDevices.getUserMedia({ audio: true, video: false });
+  return localMicStream;
+}
+
+function stopLocalMicStream() {
+  if (localMicStream) {
+    stopStreamTracks(localMicStream);
+    localMicStream = null;
+  }
+}
+
 function wirePeerEvents() {
   if (!peerConnection || !activeSession) return;
   const { trackId, sessionId } = activeSession;
@@ -311,6 +338,7 @@ async function cleanupTransport() {
     }
   }
   localStream = null;
+  stopLocalMicStream();
   activeSession = null;
   emittedIceFingerprintSet.clear();
   receivedIceFingerprintSet.clear();
@@ -404,6 +432,22 @@ export async function startWebRTCScreenShareSession({
   localStream.getTracks().forEach((track) => {
     peerConnection.addTrack(track, localStream);
   });
+
+  if (micEnabled) {
+    try {
+      const micStream = await getLocalMicStream();
+      micStream.getAudioTracks().forEach((track) => {
+        // sendonly: device mic goes to parent; parent audio is never received back.
+        peerConnection.addTransceiver(track, { direction: 'sendonly', streams: [micStream] });
+      });
+      logStep('mic audio track added', { trackCount: micStream.getAudioTracks().length });
+    } catch (e) {
+      logStep('mic audio unavailable, continuing without it', {
+        message: e?.message || String(e || ''),
+      });
+    }
+  }
+
   wirePeerEvents();
 
   emitState('waiting_offer');

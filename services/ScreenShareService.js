@@ -9,9 +9,10 @@ import {
   stopWebRTCScreenShareRemotely,
   getWebRTCScreenShareHealth,
   releaseScreenCapture,
+  setMicAudioEnabled,
 } from './ScreenShareWebRTC';
 
-export { configureScreenShareIceServers, releaseScreenCapture } from './ScreenShareWebRTC';
+export { configureScreenShareIceServers, releaseScreenCapture, setMicAudioEnabled } from './ScreenShareWebRTC';
 
 const ScreenShareModule = NativeModules?.ScreenShareModule;
 const ScreenCaptureModule = NativeModules?.ScreenCaptureModule;
@@ -362,6 +363,8 @@ async function startRequestedSession({ trackId, sessionId, mediaType, intervalMs
     intervalMs,
   });
   setScreenShareState(SCREEN_SHARE_STATES.REQUESTED, { trackId, sessionId: safeSessionId, mediaType });
+  // One-way mic audio rides along with every screen-share session (device -> parent only).
+  setMicAudioEnabled(true);
   await startScreenShare({ trackId, intervalMs, sessionId: safeSessionId, skipTransport: true });
   activeSession = { trackId, sessionId: safeSessionId, mediaType, intervalMs, startedAtMs: Date.now() };
   await startWebRTCScreenShareSession({
