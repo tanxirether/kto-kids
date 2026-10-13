@@ -39,12 +39,29 @@ class MyAccessibilityService : AccessibilityService() {
 
       serviceInfo = info
       ServiceHealthStore.setAccessibilityError(this, "", 0L)
+
+      // Accessibility service process stays alive even with screen off / app backgrounded,
+      // which is also a reliable trigger point to (re-)ensure the dedicated location foreground
+      // service is running - that service is what actually keeps location updates exempt from
+      // Doze's light-idle throttling (a plain background listener gets throttled after ~5 min).
+      try {
+        LocationForegroundService.ensureStarted(this)
+      } catch (t: Throwable) {
+        Log.e(tag, "LocationForegroundService.ensureStarted failed: ${t.message}", t)
+      }
     } catch (t: Throwable) {
       val msg = "${t.javaClass.simpleName}: ${t.message ?: "unknown"}"
       Log.e(tag, "onServiceConnected crashed: $msg", t)
       ServiceHealthStore.setAccessibilityError(this, "onServiceConnected: $msg", System.currentTimeMillis())
       // Let Android manage restart/backoff; we don't rethrow to avoid crash-loop classification.
     }
+  }
+
+  override fun onDestroy() {
+    // Intentionally does not stop LocationForegroundService/LocationTrackingManager here:
+    // that service has its own independent lifecycle so location tracking survives even if
+    // the accessibility service is briefly rebound by the OS.
+    super.onDestroy()
   }
 
   override fun onAccessibilityEvent(event: AccessibilityEvent?) {

@@ -16,7 +16,7 @@ const { width, height } = Dimensions.get("window");
 const slides = [
     {
         id: "1",
-        title: "Welcome to KTO",
+        title: "Welcome to KTO Kids",
         description: "Discover amazing features in our app.",
         image: require("../../assets/onboarding.png")
     },

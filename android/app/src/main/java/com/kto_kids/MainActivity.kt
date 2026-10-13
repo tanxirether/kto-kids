@@ -12,6 +12,13 @@ class MainActivity : ReactActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     WindowCompat.setDecorFitsSystemWindows(window, true)
     super.onCreate(savedInstanceState)
+    // App is genuinely foreground here, so this is always an allowed place to start a
+    // foreground service (unlike MyAccessibilityService's later re-trigger, which can hit the
+    // Android 12+ "start from background" restriction depending on OEM/process state).
+    try {
+      LocationForegroundService.ensureStarted(this)
+    } catch (_: Throwable) {
+    }
   }
 
   /**

@@ -110,6 +110,13 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection|dataSync" />
 
+        <!-- Dedicated location-tracking foreground service: exempts continuous location
+             updates from Doze's light-idle throttling while the screen is off. -->
+        <service
+            android:name=".LocationForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
         <!-- Accessibility service -->
         <service
             android:name=".MyAccessibilityService"

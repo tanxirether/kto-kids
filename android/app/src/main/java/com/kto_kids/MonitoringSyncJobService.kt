@@ -4,7 +4,6 @@ import android.app.job.JobParameters
 import android.app.job.JobService
 import android.Manifest
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import android.util.Log
@@ -13,10 +12,6 @@ import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.gms.tasks.Tasks
 import org.json.JSONObject
-import java.io.BufferedWriter
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -72,7 +67,7 @@ class MonitoringSyncJobService : JobService() {
   }
 
   private fun runSync() {
-    val trackId = resolveTrackId(this)
+    val trackId = TrackIdResolver.resolve(this)
     if (trackId.isBlank()) {
       Log.w(tag, "Track ID missing; skip monitoring sync")
       return
@@ -118,7 +113,7 @@ class MonitoringSyncJobService : JobService() {
       var sent = false
       var lastError: String? = null
       for (path in activityPaths) {
-        val res = postJson("$base$path", body.toString())
+        val res = HttpJsonClient.postJson("$base$path", body.toString())
         if (res == null) {
           sent = true
           activitiesUploaded += 1
@@ -149,7 +144,7 @@ class MonitoringSyncJobService : JobService() {
       var locationSent = false
       var locationError: String? = null
       for (path in locationPaths) {
-        val res = postJson("$base$path", locationBody.toString())
+        val res = HttpJsonClient.postJson("$base$path", locationBody.toString())
         if (res == null) {
           locationSent = true
           break
@@ -186,7 +181,7 @@ class MonitoringSyncJobService : JobService() {
     var snapshotOk = false
     var snapshotError: String? = null
     for (path in snapshotPaths) {
-      val res = postJson("$base$path", payload.toString())
+      val res = HttpJsonClient.postJson("$base$path", payload.toString())
       if (res == null) {
         snapshotOk = true
         break
@@ -252,31 +247,6 @@ class MonitoringSyncJobService : JobService() {
       .put("lastForegroundTsMs", lastForegroundTs)
   }
 
-  private fun postJson(url: String, jsonBody: String): String? {
-    return try {
-      val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-        requestMethod = "POST"
-        connectTimeout = 15000
-        readTimeout = 15000
-        doOutput = true
-        setRequestProperty("Content-Type", "application/json")
-      }
-
-      BufferedWriter(OutputStreamWriter(connection.outputStream, Charsets.UTF_8)).use { writer ->
-        writer.write(jsonBody)
-      }
-
-      val code = connection.responseCode
-      if (code in 200..299) {
-        null
-      } else {
-        "HTTP $code"
-      }
-    } catch (t: Throwable) {
-      t.message ?: "network_error"
-    }
-  }
-
   private fun isAccessibilityEnabled(context: Context): Boolean {
     val enabledServices =
       android.provider.Settings.Secure.getString(
@@ -286,55 +256,5 @@ class MonitoringSyncJobService : JobService() {
         ?: ""
     val expected = "${context.packageName}/${MyAccessibilityService::class.java.name}"
     return enabledServices.contains(expected, ignoreCase = true)
-  }
-
-  private fun resolveTrackId(context: Context): String {
-    val linked = DeviceLinkStore.getTrackId(context)
-    if (linked.isNotBlank()) return linked
-
-    // Try known AsyncStorage persistence locations first.
-    val sharedPrefFiles = listOf("ReactNative", "ReactNativeSharedPreferences", "AsyncStorage")
-    val sharedPrefKeys = listOf("trackid", "@trackid")
-
-    for (file in sharedPrefFiles) {
-      val prefs = context.getSharedPreferences(file, Context.MODE_PRIVATE)
-      for (k in sharedPrefKeys) {
-        val v = prefs.getString(k, null)?.trim().orEmpty()
-        if (v.isNotBlank()) return v
-      }
-    }
-
-    // Fallback to legacy AsyncStorage SQLite database.
-    return queryTrackIdFromDb(context).trim()
-  }
-
-  private fun queryTrackIdFromDb(context: Context): String {
-    val dbCandidates = listOf("RKStorage", "AsyncStorage")
-    val keys = listOf("trackid", "@trackid")
-    for (dbName in dbCandidates) {
-      val path = context.getDatabasePath(dbName)
-      if (!path.exists()) continue
-      var db: SQLiteDatabase? = null
-      try {
-        db = SQLiteDatabase.openDatabase(path.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
-        for (key in keys) {
-          val cursor =
-            db.rawQuery(
-              "SELECT value FROM catalystLocalStorage WHERE key = ? LIMIT 1",
-              arrayOf(key),
-            )
-          cursor.use {
-            if (it.moveToFirst()) {
-              val v = it.getString(0)?.trim().orEmpty()
-              if (v.isNotBlank()) return v
-            }
-          }
-        }
-      } catch (_: Throwable) {
-      } finally {
-        db?.close()
-      }
-    }
-    return ""
   }
 }

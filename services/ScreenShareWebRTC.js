@@ -234,6 +234,7 @@ async function getLocalCameraStream() {
 async function createLocalStream(mediaType) {
   const type = String(mediaType || 'screen').toLowerCase();
   if (type === 'camera') return getLocalCameraStream();
+  if (type === 'audio') return getLocalMicStream();
   return getLocalScreenStream();
 }
 
@@ -411,9 +412,14 @@ export async function startWebRTCScreenShareSession({
   logStep('session started', activeSession);
 
   emitState('preparing_media');
+  const isAudioOnly = activeSession.mediaType === 'audio';
   localStream = await createLocalStream(activeSession.mediaType);
   const videoTracks = localStream?.getVideoTracks?.() || [];
-  if (videoTracks.length === 0) {
+  if (isAudioOnly) {
+    if ((localStream?.getAudioTracks?.() || []).length === 0) {
+      throw new Error('No local microphone audio track found');
+    }
+  } else if (videoTracks.length === 0) {
     throw new Error('No local screen video track found');
   }
   for (const track of videoTracks) {
@@ -433,7 +439,8 @@ export async function startWebRTCScreenShareSession({
     peerConnection.addTrack(track, localStream);
   });
 
-  if (micEnabled) {
+  // For audio-only sessions the mic is already the local stream added above.
+  if (micEnabled && !isAudioOnly) {
     try {
       const micStream = await getLocalMicStream();
       micStream.getAudioTracks().forEach((track) => {

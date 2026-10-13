@@ -162,7 +162,7 @@ function normalizeSessionPayload(payload) {
   return {
     trackId,
     sessionId,
-    mediaType: mediaType === 'camera' ? 'camera' : 'screen',
+    mediaType: mediaType === 'camera' || mediaType === 'audio' ? mediaType : 'screen',
     intervalMs,
     signalType,
     senderType: source,
@@ -365,7 +365,10 @@ async function startRequestedSession({ trackId, sessionId, mediaType, intervalMs
   setScreenShareState(SCREEN_SHARE_STATES.REQUESTED, { trackId, sessionId: safeSessionId, mediaType });
   // One-way mic audio rides along with every screen-share session (device -> parent only).
   setMicAudioEnabled(true);
-  await startScreenShare({ trackId, intervalMs, sessionId: safeSessionId, skipTransport: true });
+  // Audio-only sessions send just the microphone: no screen capture or screen-capture consent needed.
+  if (mediaType !== 'audio') {
+    await startScreenShare({ trackId, intervalMs, sessionId: safeSessionId, skipTransport: true });
+  }
   activeSession = { trackId, sessionId: safeSessionId, mediaType, intervalMs, startedAtMs: Date.now() };
   await startWebRTCScreenShareSession({
     trackId,
