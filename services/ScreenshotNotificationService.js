@@ -40,6 +40,37 @@ export async function showScreenshotRequestNotification() {
   }
 }
 
+const ALERT_CHANNEL_ID = 'kto_alerts';
+
+/**
+ * Show a plain alert (title/body) pushed by the backend, e.g. "Safe zone alert".
+ * Works from the foreground and background handlers, so it appears without opening any screen.
+ */
+export async function showAlertNotification({ title, body, messageId } = {}) {
+  if (Platform.OS !== 'android') return;
+  if (!title && !body) return;
+  try {
+    await notifee.createChannel({
+      id: ALERT_CHANNEL_ID,
+      name: 'Alerts',
+      importance: AndroidImportance.HIGH,
+    });
+    await notifee.displayNotification({
+      id: messageId ? 'alert-' + messageId : 'alert-' + Date.now(),
+      title: title || 'KTO',
+      body: body || '',
+      android: {
+        channelId: ALERT_CHANNEL_ID,
+        importance: AndroidImportance.HIGH,
+        smallIcon: 'ic_launcher',
+        pressAction: { id: 'default' },
+      },
+    });
+  } catch (e) {
+    console.warn('Alert notification failed:', e);
+  }
+}
+
 const CAMERA_CHANNEL_ID = 'camera_capture_request';
 
 /**

@@ -221,19 +221,21 @@ async function getLocalScreenStream() {
   return stream;
 }
 
-async function getLocalCameraStream() {
+async function getLocalCameraStream(camera = '') {
   if (typeof localCameraStreamProvider === 'function') {
     return localCameraStreamProvider();
   }
   if (typeof mediaDevices?.getUserMedia === 'function') {
-    return mediaDevices.getUserMedia({ video: true, audio: false });
+    // 'front' -> selfie camera, 'back' -> rear camera; unset keeps the device default.
+    const video = camera ? { facingMode: camera === 'back' ? 'environment' : 'user' } : true;
+    return mediaDevices.getUserMedia({ video, audio: false });
   }
   throw new Error('Camera stream provider is not available');
 }
 
-async function createLocalStream(mediaType) {
+async function createLocalStream(mediaType, camera = '') {
   const type = String(mediaType || 'screen').toLowerCase();
-  if (type === 'camera') return getLocalCameraStream();
+  if (type === 'camera') return getLocalCameraStream(camera);
   if (type === 'audio') return getLocalMicStream();
   return getLocalScreenStream();
 }
@@ -386,6 +388,7 @@ export async function startWebRTCScreenShareSession({
   trackId,
   sessionId,
   mediaType = 'screen',
+  camera = '',
   iceServers,
   offerTimeoutMs = DEFAULT_OFFER_TIMEOUT_MS,
   onStateChange,
@@ -413,7 +416,7 @@ export async function startWebRTCScreenShareSession({
 
   emitState('preparing_media');
   const isAudioOnly = activeSession.mediaType === 'audio';
-  localStream = await createLocalStream(activeSession.mediaType);
+  localStream = await createLocalStream(activeSession.mediaType, camera);
   const videoTracks = localStream?.getVideoTracks?.() || [];
   if (isAudioOnly) {
     if ((localStream?.getAudioTracks?.() || []).length === 0) {

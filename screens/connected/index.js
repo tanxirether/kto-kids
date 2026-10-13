@@ -7,6 +7,8 @@ import {
     TouchableOpacity,
     Image,
     Dimensions,
+    Alert,
+    ActivityIndicator,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -16,7 +18,11 @@ import {
     getLastLocationSyncMsMerged,
     setLinkedTrackId,
 } from '../../services/AccessibilityServiceBridge'
+import { sendSos } from '../../services/SosService'
 const { width } = Dimensions.get('window')
+
+// Stops accidental repeat presses from flooding the parents with alerts.
+const SOS_COOLDOWN_MS = 30 * 1000
 
 function formatLastSync(tsMs) {
     if (tsMs == null || tsMs <= 0) return 'Not yet'
@@ -31,6 +37,40 @@ const ConnectedScreen = ({ navigation }) => {
     const [connectedDevice, setConnectedDevice] = useState(null);
     const [lastActivitiesSync, setLastActivitiesSync] = useState(null)
     const [lastLocationSync, setLastLocationSync] = useState(null)
+    const [sosSending, setSosSending] = useState(false)
+    const [lastSosAt, setLastSosAt] = useState(0)
+
+    const triggerSos = async () => {
+        setSosSending(true)
+        try {
+            const { hasLocation } = await sendSos()
+            setLastSosAt(Date.now())
+            Alert.alert(
+                'SOS sent',
+                hasLocation
+                    ? 'Your parents were notified with your location.'
+                    : 'Your parents were notified. Your location could not be read.'
+            )
+        } catch (error) {
+            const message =
+                error?.response?.data?.message || error?.message || 'Could not send SOS. Try again.'
+            Alert.alert('SOS failed', String(message))
+        } finally {
+            setSosSending(false)
+        }
+    }
+
+    const onSosPress = () => {
+        if (sosSending) return
+        if (Date.now() - lastSosAt < SOS_COOLDOWN_MS) {
+            Alert.alert('SOS already sent', 'Your parents were just notified. Please wait a moment.')
+            return
+        }
+        Alert.alert('Send SOS?', 'This will alert your parents and share your location.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Send SOS', style: 'destructive', onPress: triggerSos },
+        ])
+    }
 
     useFocusEffect(
         useCallback(() => {
@@ -120,6 +160,23 @@ const ConnectedScreen = ({ navigation }) => {
 
 
 
+                {/* SOS */}
+                <View style={styles.sosWrap}>
+                    <TouchableOpacity
+                        style={[styles.sosButton, sosSending && styles.sosButtonBusy]}
+                        onPress={onSosPress}
+                        activeOpacity={0.85}
+                        disabled={sosSending}
+                    >
+                        {sosSending ? (
+                            <ActivityIndicator color="#fff" />
+                        ) : (
+                            <Text style={styles.sosText}>SOS</Text>
+                        )}
+                    </TouchableOpacity>
+                    <Text style={styles.sosHint}>Press in an emergency to alert your parents</Text>
+                </View>
+
                 {/* What's Next */}
                 <View style={styles.section}>
                     <View style={styles.features}>
@@ -144,6 +201,36 @@ const ConnectedScreen = ({ navigation }) => {
 }
 
 const styles = StyleSheet.create({
+    sosWrap: {
+        alignItems: 'center',
+        marginBottom: 28,
+    },
+    sosButton: {
+        width: 120,
+        height: 120,
+        borderRadius: 60,
+        backgroundColor: '#e53935',
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#e53935',
+        shadowOpacity: 0.4,
+        shadowRadius: 10,
+        elevation: 8,
+    },
+    sosButtonBusy: {
+        opacity: 0.7,
+    },
+    sosText: {
+        color: '#fff',
+        fontSize: 32,
+        fontWeight: '800',
+        letterSpacing: 2,
+    },
+    sosHint: {
+        marginTop: 12,
+        fontSize: 13,
+        color: '#6b7280',
+    },
     container: {
         flex: 1,
         backgroundColor: '#f8f9fa',

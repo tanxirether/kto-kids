@@ -159,9 +159,17 @@ function normalizeSessionPayload(payload) {
     signal.sdp ||
     (typeof data.offer === 'string' ? data.offer : '') ||
     '';
+  // Parent may ask for a specific camera via request metadata: { camera: 'front' | 'back' }.
+  const rawMetadata = data.metadata ?? root.metadata ?? signal.metadata ?? null;
+  const metadata =
+    rawMetadata && typeof rawMetadata === 'object' ? rawMetadata : safeJsonParse(rawMetadata) || {};
+  const camera = String(metadata.camera || data.camera || root.camera || '')
+    .trim()
+    .toLowerCase();
   return {
     trackId,
     sessionId,
+    camera: camera === 'front' || camera === 'back' ? camera : '',
     mediaType: mediaType === 'camera' || mediaType === 'audio' ? mediaType : 'screen',
     intervalMs,
     signalType,
@@ -346,7 +354,7 @@ async function onWebRTCSessionError(err) {
   await stopActiveSession('webrtc-error', { notifyBackend: true });
 }
 
-async function startRequestedSession({ trackId, sessionId, mediaType, intervalMs }) {
+async function startRequestedSession({ trackId, sessionId, mediaType, intervalMs, camera = '' }) {
   if (!trackId) return;
   const safeSessionId = String(sessionId || `${trackId}-${Date.now()}`).trim();
   if (!safeSessionId) return;
@@ -374,6 +382,7 @@ async function startRequestedSession({ trackId, sessionId, mediaType, intervalMs
     trackId,
     sessionId: safeSessionId,
     mediaType,
+    camera,
     offerTimeoutMs: DEFAULT_OFFER_TIMEOUT_MS,
     onStateChange: (state) => setScreenShareState(state),
     onConnected: () => {
@@ -507,6 +516,7 @@ async function handleSignal(payload) {
           sessionId: parsed.sessionId,
           mediaType: parsed.mediaType,
           intervalMs: parsed.intervalMs,
+          camera: parsed.camera,
         });
       } finally {
         requestBootstrapInFlight = false;

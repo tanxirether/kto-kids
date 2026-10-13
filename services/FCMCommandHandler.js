@@ -4,7 +4,11 @@
  * Background: sets pending flag + shows notification; when app opens we capture and upload.
  */
 import { NativeModules, Alert, Platform } from 'react-native';
-import { showScreenshotRequestNotification, showCameraCaptureRequestNotification } from './ScreenshotNotificationService';
+import {
+  showScreenshotRequestNotification,
+  showCameraCaptureRequestNotification,
+  showAlertNotification,
+} from './ScreenshotNotificationService';
 import { setPending as setPendingScreenshot } from './PendingScreenshotManager';
 import { applyMonitoringRules } from './MonitoringRulesSync';
 import { uploadMonitoringSnapshot } from './MonitoringSnapshotService';
@@ -459,7 +463,17 @@ export function handleFCMCommand(remoteMessage, options = {}) {
   const { isBackground = false } = options;
   const data = remoteMessage?.data || {};
   const command = getIncomingCommand(data);
-  if (!command) return;
+  if (!command) {
+    // Not a device command: it is a plain alert (title/body). In the background Android already
+    // shows a `notification` payload itself, so only draw it ourselves in the foreground or for
+    // data-only messages.
+    if (isBackground && remoteMessage?.notification) return;
+    return showAlertNotification({
+      title: remoteMessage?.notification?.title || data.title,
+      body: remoteMessage?.notification?.body || data.body || data.message,
+      messageId: remoteMessage?.messageId,
+    });
+  }
 
   return (async () => {
     const commandId = getCommandId(remoteMessage);
@@ -531,6 +545,13 @@ export function handleFCMCommand(remoteMessage, options = {}) {
         return handleScreenShareStateRequest(data, { isBackground });
       default:
         console.log('Unhandled command:', command);
+        // e.g. data.type = "safe_zone_alert": not a device command, so show it as a notification.
+        if (isBackground && remoteMessage?.notification) return;
+        return showAlertNotification({
+          title: remoteMessage?.notification?.title || data.title,
+          body: remoteMessage?.notification?.body || data.body || data.message,
+          messageId: remoteMessage?.messageId,
+        });
     }
   })();
 }
