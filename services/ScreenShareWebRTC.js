@@ -267,6 +267,40 @@ function stopLocalMicStream() {
   }
 }
 
+// getDisplayMedia on Android captures at full native resolution (e.g. 1080x2400) and ignores
+// constraints, which makes the encoder lag badly on phones. Cap size/fps/bitrate on the sender
+// and prefer dropping resolution over frames when bandwidth is tight.
+const SCREEN_MAX_BITRATE_BPS = 1500000;
+const SCREEN_MAX_FRAMERATE = 20;
+const SCREEN_TARGET_LONG_EDGE_PX = 1280;
+
+async function tuneVideoSenders() {
+  if (!peerConnection) return;
+  const senders = peerConnection.getSenders?.() || [];
+  for (const sender of senders) {
+    if (sender?.track?.kind !== 'video') continue;
+    try {
+      const settings = sender.track.getSettings?.() || {};
+      const longEdge = Math.max(Number(settings.width) || 0, Number(settings.height) || 0);
+      const scale = longEdge > SCREEN_TARGET_LONG_EDGE_PX ? longEdge / SCREEN_TARGET_LONG_EDGE_PX : 1;
+      const params = sender.getParameters?.() || {};
+      const encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
+      encodings[0] = {
+        ...encodings[0],
+        maxBitrate: SCREEN_MAX_BITRATE_BPS,
+        maxFramerate: SCREEN_MAX_FRAMERATE,
+        scaleResolutionDownBy: scale,
+      };
+      params.encodings = encodings;
+      params.degradationPreference = 'maintain-framerate';
+      await sender.setParameters(params);
+      logStep('video sender tuned', { scale, longEdge });
+    } catch (e) {
+      logStep('video sender tuning skipped', { message: e?.message || String(e || '') });
+    }
+  }
+}
+
 function wirePeerEvents() {
   if (!peerConnection || !activeSession) return;
   const { trackId, sessionId } = activeSession;
@@ -416,6 +450,10 @@ export async function startWebRTCScreenShareSession({
 
   emitState('preparing_media');
   const isAudioOnly = activeSession.mediaType === 'audio';
+  // Fetch ICE servers in parallel with media capture setup instead of one after the other.
+  const iceServersPromise = isValidIceServerList(iceServers)
+    ? Promise.resolve(iceServers)
+    : resolveIceServers();
   localStream = await createLocalStream(activeSession.mediaType, camera);
   const videoTracks = localStream?.getVideoTracks?.() || [];
   if (isAudioOnly) {
@@ -436,7 +474,7 @@ export async function startWebRTCScreenShareSession({
     videoTracks: extractVideoTrackSnapshot(localStream),
   });
 
-  const resolvedIceServers = isValidIceServerList(iceServers) ? iceServers : await resolveIceServers();
+  const resolvedIceServers = await iceServersPromise;
   peerConnection = new RTCPeerConnection({ iceServers: resolvedIceServers });
   localStream.getTracks().forEach((track) => {
     peerConnection.addTrack(track, localStream);
@@ -522,6 +560,7 @@ export async function processWebRTCSignal({ trackId, sessionId, signalType, sdp,
     const answer = await peerConnection.createAnswer();
     await peerConnection.setLocalDescription(answer);
     logStep('answer created', { hasSdp: Boolean(answer?.sdp) });
+    await tuneVideoSenders();
     await postSignal({
       trackId,
       sessionId: sessionId || activeSession?.sessionId || '',

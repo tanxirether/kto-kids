@@ -724,6 +724,13 @@ const Permission = ({ navigation, route }) => {
               <Text style={styles.runtimeIndicatorLine}>
                 peer: {screenShareRuntime?.webrtc?.peerState || 'none'}
               </Text>
+              {screenShareRuntime?.startedAtMs ? (
+                <Text style={styles.runtimeIndicatorLine}>
+                  {screenShareRuntime.connectedAtMs
+                    ? `screen showed after ${((screenShareRuntime.connectedAtMs - screenShareRuntime.startedAtMs) / 1000).toFixed(1)}s • live for ${Math.max(0, Math.round((Date.now() - screenShareRuntime.connectedAtMs) / 1000))}s`
+                    : `connecting… ${Math.max(0, Math.round((Date.now() - screenShareRuntime.startedAtMs) / 1000))}s (screen not showing yet)`}
+                </Text>
+              ) : null}
             </View>
             {__DEV__ ? (
               <View style={styles.debugInlineContainer}>

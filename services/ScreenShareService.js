@@ -387,6 +387,7 @@ async function startRequestedSession({ trackId, sessionId, mediaType, intervalMs
     onStateChange: (state) => setScreenShareState(state),
     onConnected: () => {
       clearWaitingOfferTimer();
+      if (activeSession && !activeSession.connectedAtMs) activeSession.connectedAtMs = Date.now();
       setScreenShareState(SCREEN_SHARE_STATES.CONNECTED);
     },
     onError: onWebRTCSessionError,
@@ -429,7 +430,7 @@ async function startRequestedSession({ trackId, sessionId, mediaType, intervalMs
         });
       })
       .catch(() => {});
-  }, 3000);
+  }, 1000);
   waitingOfferTimer = setTimeout(() => {
     stopActiveSession('offer-timeout', { notifyBackend: true });
   }, DEFAULT_OFFER_TIMEOUT_MS);
@@ -936,6 +937,8 @@ export function getScreenShareRuntimeState() {
     hasSession: Boolean(activeSession),
     trackId: activeSession?.trackId || '',
     sessionId: activeSession?.sessionId || '',
+    startedAtMs: activeSession?.startedAtMs || 0,
+    connectedAtMs: activeSession?.connectedAtMs || 0,
     webrtc: getWebRTCScreenShareHealth(),
   };
 }
