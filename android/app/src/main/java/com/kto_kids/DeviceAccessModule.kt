@@ -74,6 +74,95 @@ class DeviceAccessModule(private val reactContext: ReactApplicationContext) :
   }
 
   @ReactMethod
+  fun isIgnoringBatteryOptimizations(promise: Promise) {
+    val pm = reactContext.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+    promise.resolve(pm.isIgnoringBatteryOptimizations(reactContext.packageName))
+  }
+
+  // Keeps the process (and the in-memory screen capture) alive after the app is swiped away.
+  @ReactMethod
+  fun requestIgnoreBatteryOptimizations() {
+    val intent =
+      Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+        data = android.net.Uri.parse("package:${reactContext.packageName}")
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+    try {
+      reactContext.startActivity(intent)
+    } catch (_: Exception) {
+      val fallback = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+      fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      reactContext.startActivity(fallback)
+    }
+  }
+
+  // Xiaomi/Oppo/Vivo/Realme/Huawei kill swiped apps unless "Autostart" is on; there is no
+  // standard API, so try the known vendor screens and fall back to the app details page.
+  @ReactMethod
+  fun openAutostartSettings(promise: Promise) {
+    val candidates =
+      listOf(
+        "com.miui.securitycenter" to "com.miui.permcenter.autostart.AutoStartManagementActivity",
+        "com.coloros.safecenter" to "com.coloros.safecenter.permission.startup.StartupAppListActivity",
+        "com.oppo.safe" to "com.oppo.safe.permission.startup.StartupAppListActivity",
+        "com.vivo.permissionmanager" to "com.vivo.permissionmanager.activity.BgStartUpManagerActivity",
+        "com.iqoo.secure" to "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity",
+        "com.huawei.systemmanager" to "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
+        "com.transsion.phonemaster" to "com.cyin.himgr.autostart.AutoStartActivity",
+      )
+    for ((pkg, cls) in candidates) {
+      try {
+        val intent = Intent().apply {
+          setClassName(pkg, cls)
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        reactContext.startActivity(intent)
+        promise.resolve(true)
+        return
+      } catch (_: Exception) {
+      }
+    }
+    try {
+      val intent =
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+          data = android.net.Uri.parse("package:${reactContext.packageName}")
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+      reactContext.startActivity(intent)
+      promise.resolve(false)
+    } catch (e: Exception) {
+      promise.reject("E_AUTOSTART", e.message, e)
+    }
+  }
+
+  // Android 14+ can require the user to explicitly allow this app's full-screen-intent
+  // notifications (Settings > Apps > KTO Kids > Full screen notifications). Without it, the
+  // live-camera "wake" notification still shows, just as a normal heads-up needing a tap.
+  @ReactMethod
+  fun canUseFullScreenIntent(promise: Promise) {
+    if (Build.VERSION.SDK_INT < 34) {
+      promise.resolve(true)
+      return
+    }
+    val nm = reactContext.getSystemService(android.app.NotificationManager::class.java)
+    promise.resolve(nm?.canUseFullScreenIntent() ?: true)
+  }
+
+  @ReactMethod
+  fun openFullScreenIntentSettings() {
+    if (Build.VERSION.SDK_INT < 34) return
+    try {
+      val intent =
+        Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+          data = android.net.Uri.parse("package:${reactContext.packageName}")
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+      reactContext.startActivity(intent)
+    } catch (_: Exception) {
+    }
+  }
+
+  @ReactMethod
   fun isAccessibilityEnabled(promise: Promise) {
     val enabledServices =
       Settings.Secure.getString(

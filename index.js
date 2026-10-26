@@ -9,6 +9,7 @@ import notifee from '@notifee/react-native';
 import { getMessaging, setBackgroundMessageHandler } from '@react-native-firebase/messaging';
 import ReactNativeForegroundService from '@supersami/rn-foreground-service';
 import { handleFCMCommand } from './services/FCMCommandHandler';
+import { configureScreenShare, startScreenShareRuntimeIfConsented } from './services/ScreenShareBootstrap';
 
 import App from './App';
 import { name as appName } from './app.json';
@@ -25,6 +26,11 @@ const messaging = getMessaging();
 setBackgroundMessageHandler(messaging, async (remoteMessage) => {
   return handleFCMCommand(remoteMessage, { isBackground: true });
 });
+
+// Keep the parent->child screen/camera/mic request channel alive without depending on the
+// React tree, which is torn down when the app is swiped from recents.
+configureScreenShare();
+startScreenShareRuntimeIfConsented().catch(() => {});
 
 // alert: false - prevents popup when native emits "error" on service stop (e.g. Strict Mode cleanup)
 ReactNativeForegroundService.register({

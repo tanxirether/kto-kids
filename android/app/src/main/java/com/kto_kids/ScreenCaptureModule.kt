@@ -3,7 +3,9 @@ package com.kto_kids
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
+import android.os.Build
 import com.facebook.react.bridge.BaseActivityEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -69,7 +71,13 @@ class ScreenCaptureModule(private val reactContext: ReactApplicationContext) :
     try {
       pending = promise
       val mpm = activity.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-      val captureIntent = mpm.createScreenCaptureIntent()
+      // Android 14+: entire screen only, so the child can't pick "A single app".
+      val captureIntent =
+        if (Build.VERSION.SDK_INT >= 34) {
+          mpm.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
+        } else {
+          mpm.createScreenCaptureIntent()
+        }
       @Suppress("DEPRECATION")
       activity.startActivityForResult(captureIntent, requestCode)
     } catch (e: Exception) {

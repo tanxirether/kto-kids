@@ -76,13 +76,21 @@ export default function App() {
       const locationStop = startLocationSync();
       const screenShareStop = initScreenShareRuntime();
 
+      // Some of these return a Promise or nothing rather than a stop function
+      // (restoreMonitoringRules is async), so only call real functions.
+      const run = (fn) => {
+        if (typeof fn === "function") fn();
+      };
+
       return () => {
-        fgCleanup?.();
-        rulesCleanup?.();
-        eventsCleanup?.();
-        policyStop?.();
-        locationStop?.();
-        screenShareStop?.();
+        run(fgCleanup);
+        run(rulesCleanup);
+        run(eventsCleanup);
+        run(policyStop);
+        run(locationStop);
+        // Screen-share runtime is owned by index.js (ScreenShareBootstrap) so it keeps
+        // receiving parent requests after this component unmounts; do not stop it here.
+        void screenShareStop;
       };
     });
 

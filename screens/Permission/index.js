@@ -26,7 +26,8 @@ import { register as registerCameraCapture, unregister as unregisterCameraCaptur
 import { getPending as getPendingCameraCapture, clearPending as clearPendingCameraCapture } from '../../services/PendingCameraCaptureManager'
 import { uploadCameraPhoto } from '../../services/CameraPhotoService'
 import { debugStartForegroundService, debugStopForegroundService } from '../../services/ForegroundServiceManager'
-import { isAccessibilityEnabled, openAccessibilitySettings, hasUsageAccess, openUsageAccessSettings, isDeviceLocationEnabled, openDeviceLocationSettings, ensureDeviceLocationEnabled } from '../../services/AccessibilityServiceBridge'
+import { canUseFullScreenIntent, openFullScreenIntentSettings } from '../../services/LiveSessionWakeNotification'
+import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimizations, openAutostartSettings, isAccessibilityEnabled, openAccessibilitySettings, hasUsageAccess, openUsageAccessSettings, isDeviceLocationEnabled, openDeviceLocationSettings, ensureDeviceLocationEnabled } from '../../services/AccessibilityServiceBridge'
 import { getScreenShareState, startScreenShare, stopScreenShare } from '../../services/ScreenShareService'
 import { getScreenShareRuntimeState } from '../../services/ScreenShareService'
 import { getWebRTCScreenShareLogs } from '../../services/ScreenShareWebRTC'
@@ -39,6 +40,8 @@ import {
 } from '../../constants/monitoringDisclosure'
 
 const { ScreenLock, ScreenCaptureModule } = NativeModules
+
+const AUTOSTART_OPENED_KEY = 'kto_autostart_settings_opened'
 
 const SENSITIVE_PERMISSION_KEYS = new Set([
   'accessibilityService',
@@ -67,6 +70,7 @@ const Permission = ({ navigation, route }) => {
     usageReport: false,
     keepBackground: false,
     superBattery: false,
+    liveSessionWake: false,
     /** Android: MediaProjection screen-capture consent for parent screen view / casting */
     screenCasting: Platform.OS !== 'android',
   })
@@ -334,8 +338,27 @@ const Permission = ({ navigation, route }) => {
         break
 
       case "keepBackground":
+        // "No restrictions" battery mode: stops the OS killing the app (and the screen capture) on swipe.
+        requestIgnoreBatteryOptimizations()
+        break
+
       case "superBattery":
-        Linking.openSettings()
+        // Vendor "Autostart" screen (Xiaomi/Oppo/Vivo/Realme/Huawei); app settings elsewhere.
+        // Android cannot report the Autostart state, so remember that the user was sent there.
+        await openAutostartSettings()
+        try {
+          await AsyncStorage.setItem(AUTOSTART_OPENED_KEY, 'true')
+        } catch {
+          // best effort
+        }
+        updatePermission(key, true)
+        break
+
+      case "liveSessionWake":
+        // Android 14+ "Use full screen intent": lets the app auto-reopen over the lock screen
+        // when a parent's live camera/screen session needs it; without it, a tap is required.
+        openFullScreenIntentSettings()
+        updatePermission(key, true)
         break
 
       case "screenCasting": {
@@ -420,6 +443,14 @@ const Permission = ({ navigation, route }) => {
     )
     updatePermission("accessibilityService", Boolean(accEnabled))
     updatePermission("usageReport", Boolean(usageAccess))
+
+    // Battery "No restrictions" is readable from the OS; Autostart is not (see runPermissionRequest).
+    updatePermission("keepBackground", Boolean(await isIgnoringBatteryOptimizations().catch(() => false)))
+    updatePermission(
+      "superBattery",
+      (await AsyncStorage.getItem(AUTOSTART_OPENED_KEY).catch(() => null)) === 'true'
+    )
+    updatePermission("liveSessionWake", Boolean(await canUseFullScreenIntent().catch(() => true)))
 
     if (Platform.OS === 'android' && ScreenCaptureModule?.hasScreenCaptureConsent) {
       try {
@@ -797,6 +828,7 @@ const Permission = ({ navigation, route }) => {
             <PermissionItem title="Usage Report" subtitle="View app usage" permissionKey="usageReport" iconName="chart-bar" />
             <PermissionItem title="Run in Background" subtitle="Keep monitoring active" permissionKey="keepBackground" iconName="refresh" />
             <PermissionItem title="Battery Optimization" subtitle="Prevent system kill" permissionKey="superBattery" iconName="battery-charging" />
+            <PermissionItem title="Auto-Reopen for Live Requests" subtitle="Reopen app automatically for camera/screen sessions" permissionKey="liveSessionWake" iconName="bell-ring-outline" />
           </View>
         </ScrollView>
 

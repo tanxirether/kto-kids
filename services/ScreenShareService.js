@@ -11,6 +11,10 @@ import {
   releaseScreenCapture,
   setMicAudioEnabled,
 } from './ScreenShareWebRTC';
+import {
+  showLiveSessionWakeNotification,
+  clearLiveSessionWakeNotification,
+} from './LiveSessionWakeNotification';
 
 export { configureScreenShareIceServers, releaseScreenCapture, setMicAudioEnabled } from './ScreenShareWebRTC';
 
@@ -51,6 +55,27 @@ let remoteRevisionSeen = '';
 let pusherConfigOverride = null;
 let requestBootstrapInFlight = false;
 let pendingEarlyOffer = null;
+// Remembers the last *explicitly* requested media type (camera/audio/screen) per trackId, so
+// that when a bare SDP offer arrives with no mediaType field (the backend's plain webrtc/signal
+// payload does not carry one), we do not silently reinterpret e.g. a camera request as a screen
+// request just because the field was missing. Cleared/ignored once stale.
+const LAST_MEDIA_TYPE_TTL_MS = 120000;
+const lastRequestedMediaType = new Map(); // trackId -> { mediaType, camera, atMs }
+
+function rememberRequestedMediaType(trackId, mediaType, camera) {
+  if (!trackId || !mediaType) return;
+  lastRequestedMediaType.set(String(trackId), { mediaType, camera: camera || '', atMs: Date.now() });
+}
+
+function recallRequestedMediaType(trackId) {
+  const entry = lastRequestedMediaType.get(String(trackId || ''));
+  if (!entry) return null;
+  if (Date.now() - entry.atMs > LAST_MEDIA_TYPE_TTL_MS) {
+    lastRequestedMediaType.delete(String(trackId));
+    return null;
+  }
+  return entry;
+}
 let PusherClientCtor = null;
 let pusherLoadError = null;
 
@@ -118,17 +143,18 @@ function normalizeSessionPayload(payload) {
       root.session_id ||
       '',
   ).trim();
-  const mediaType = String(
+  const rawMediaType = String(
     data.mediaType ||
       data.media_type ||
       signal.mediaType ||
       signal.media_type ||
       root.mediaType ||
       root.media_type ||
-      'screen',
+      '',
   )
     .trim()
     .toLowerCase();
+  const mediaType = rawMediaType || 'screen';
   const intervalMs = normalizeIntervalMs(data.intervalMs ?? data.interval_ms ?? 2500);
   const rawSignalType = data.signalType || data.signal_type || data.type || signal.type || '';
   const signalType = String(rawSignalType).trim().toLowerCase().replace(/_/g, '-');
@@ -171,6 +197,9 @@ function normalizeSessionPayload(payload) {
     sessionId,
     camera: camera === 'front' || camera === 'back' ? camera : '',
     mediaType: mediaType === 'camera' || mediaType === 'audio' ? mediaType : 'screen',
+    // true only when the payload itself named a mediaType; lets callers tell "parent asked for
+    // screen" apart from "this signal just didn't carry the field" (e.g. a bare SDP offer).
+    mediaTypeExplicit: rawMediaType === 'camera' || rawMediaType === 'audio' || rawMediaType === 'screen',
     intervalMs,
     signalType,
     senderType: source,
@@ -345,6 +374,7 @@ async function stopActiveSession(reason = 'stopped', { notifyBackend = true } = 
       reason,
     }).catch(() => {});
   }
+  clearLiveSessionWakeNotification().catch(() => {});
   setScreenShareState(SCREEN_SHARE_STATES.IDLE, { reason });
 }
 
@@ -358,6 +388,7 @@ async function startRequestedSession({ trackId, sessionId, mediaType, intervalMs
   if (!trackId) return;
   const safeSessionId = String(sessionId || `${trackId}-${Date.now()}`).trim();
   if (!safeSessionId) return;
+  rememberRequestedMediaType(trackId, mediaType, camera);
   if (activeSession && matchesActiveSession(trackId, sessionId)) {
     return;
   }
@@ -378,21 +409,39 @@ async function startRequestedSession({ trackId, sessionId, mediaType, intervalMs
     await startScreenShare({ trackId, intervalMs, sessionId: safeSessionId, skipTransport: true });
   }
   activeSession = { trackId, sessionId: safeSessionId, mediaType, intervalMs, startedAtMs: Date.now() };
-  await startWebRTCScreenShareSession({
-    trackId,
-    sessionId: safeSessionId,
-    mediaType,
-    camera,
-    offerTimeoutMs: DEFAULT_OFFER_TIMEOUT_MS,
-    onStateChange: (state) => setScreenShareState(state),
-    onConnected: () => {
-      clearWaitingOfferTimer();
-      if (activeSession && !activeSession.connectedAtMs) activeSession.connectedAtMs = Date.now();
-      setScreenShareState(SCREEN_SHARE_STATES.CONNECTED);
-    },
-    onError: onWebRTCSessionError,
-    onEnded: () => stopActiveSession('session-ended', { notifyBackend: false }),
-  });
+  try {
+    await startWebRTCScreenShareSession({
+      trackId,
+      sessionId: safeSessionId,
+      mediaType,
+      camera,
+      offerTimeoutMs: DEFAULT_OFFER_TIMEOUT_MS,
+      onStateChange: (state) => setScreenShareState(state),
+      onConnected: () => {
+        clearWaitingOfferTimer();
+        if (activeSession && !activeSession.connectedAtMs) activeSession.connectedAtMs = Date.now();
+        setScreenShareState(SCREEN_SHARE_STATES.CONNECTED);
+        clearLiveSessionWakeNotification().catch(() => {});
+      },
+      onError: onWebRTCSessionError,
+      onEnded: () => stopActiveSession('session-ended', { notifyBackend: false }),
+    });
+  } catch (e) {
+    // react-native-webrtc requires a live Activity for getUserMedia(camera/screen); it rejects
+    // with this exact message once the app was swiped from recents and the Activity is gone,
+    // even though this process/JS is still running. Clear the half-started session (so a status
+    // recovery can retry) and surface a notification that brings the app back to the foreground;
+    // once it resumes, runtimeTick's AppState "active" handling retries this same session.
+    const message = String(e?.message || e || '');
+    console.warn('ScreenShareService: webrtc session start failed', message);
+    activeSession = null;
+    resetSessionMemory();
+    setScreenShareState(SCREEN_SHARE_STATES.ERROR, { message });
+    if (/no current activity/i.test(message)) {
+      showLiveSessionWakeNotification(mediaType).catch(() => {});
+    }
+    return;
+  }
   clearWaitingOfferTimer();
   clearOfferRecoveryTimer();
   if (pendingEarlyOffer && matchesActiveSession(pendingEarlyOffer.trackId, pendingEarlyOffer.sessionId)) {
@@ -444,6 +493,9 @@ async function handleSessionRequested(payload) {
     parsed.sessionId = await resolveActiveSessionIdFromStatus(trackId);
   }
   if (!parsed.trackId || parsed.trackId !== trackId) return;
+  if (parsed.mediaTypeExplicit) {
+    rememberRequestedMediaType(parsed.trackId, parsed.mediaType, parsed.camera);
+  }
   if (requestBootstrapInFlight) {
     return;
   }
@@ -504,10 +556,20 @@ async function handleSignal(payload) {
     sender !== 'child' &&
     parsed.sessionId
   ) {
+    // A bare SDP offer (no mediaType field) does not tell us what the parent actually asked for.
+    // Prefer the last explicitly-requested type for this track (e.g. the camera request that
+    // failed moments ago while the app had no foreground Activity) over silently defaulting to
+    // "screen" - that default previously caused a camera request to connect with a stale/leftover
+    // screen capture instead of retrying the camera.
+    const remembered = parsed.mediaTypeExplicit ? null : recallRequestedMediaType(parsed.trackId);
+    const resolvedMediaType = remembered?.mediaType || parsed.mediaType;
+    const resolvedCamera = parsed.camera || remembered?.camera || '';
     console.log('ScreenShareService: offer-triggered session bootstrap', {
       trackId: parsed.trackId,
       sessionId: parsed.sessionId,
       senderType: sender || 'unknown',
+      mediaType: resolvedMediaType,
+      mediaTypeFromMemory: Boolean(remembered),
     });
     if (!requestBootstrapInFlight) {
       requestBootstrapInFlight = true;
@@ -515,9 +577,9 @@ async function handleSignal(payload) {
         await startRequestedSession({
           trackId: parsed.trackId,
           sessionId: parsed.sessionId,
-          mediaType: parsed.mediaType,
+          mediaType: resolvedMediaType,
           intervalMs: parsed.intervalMs,
-          camera: parsed.camera,
+          camera: resolvedCamera,
         });
       } finally {
         requestBootstrapInFlight = false;
@@ -829,31 +891,48 @@ async function runtimeTick() {
     await ensureRealtimeSubscription();
     const state = await getScreenShareState({});
     const localTrackId = await resolveTrackId();
-    if (!activeSession && state?.active && localTrackId) {
+    if (!activeSession && state?.active && localTrackId && !requestBootstrapInFlight) {
       const recoveredSessionId = await resolveActiveSessionIdFromStatus(localTrackId);
       if (recoveredSessionId) {
+        // The /screen-share status endpoint does not report what media type the active session
+        // is; defaulting to 'screen' here raced with the correctly-typed camera/audio attempt
+        // from handleSignal and could win, reusing a stale screen capture for a camera request.
+        const remembered = recallRequestedMediaType(localTrackId);
         console.log('ScreenShareService: recovering active session from status', {
           trackId: localTrackId,
           sessionId: recoveredSessionId,
+          mediaType: remembered?.mediaType || 'screen',
         });
-        await startRequestedSession({
-          trackId: localTrackId,
-          sessionId: recoveredSessionId,
-          mediaType: 'screen',
-          intervalMs: state?.intervalMs || 2500,
-        });
+        requestBootstrapInFlight = true;
+        try {
+          await startRequestedSession({
+            trackId: localTrackId,
+            sessionId: recoveredSessionId,
+            mediaType: remembered?.mediaType || 'screen',
+            camera: remembered?.camera || '',
+            intervalMs: state?.intervalMs || 2500,
+          });
+        } finally {
+          requestBootstrapInFlight = false;
+        }
       } else {
         // If realtime/session-request was missed, recover directly from latest offer.
         const latestOffer = await resolveLatestOfferFromBackend(localTrackId);
         if (latestOffer?.sessionId && latestOffer?.sdp) {
+          const remembered = latestOffer.mediaTypeExplicit
+            ? null
+            : recallRequestedMediaType(localTrackId);
+          const resolvedMediaType = remembered?.mediaType || latestOffer.mediaType || 'screen';
           console.log('ScreenShareService: recovering session from latest-offer fallback', {
             trackId: localTrackId,
             sessionId: latestOffer.sessionId,
+            mediaType: resolvedMediaType,
           });
           await startRequestedSession({
             trackId: localTrackId,
             sessionId: latestOffer.sessionId,
-            mediaType: latestOffer.mediaType || 'screen',
+            mediaType: resolvedMediaType,
+            camera: latestOffer.camera || remembered?.camera || '',
             intervalMs: state?.intervalMs || latestOffer.intervalMs || 2500,
           });
           await processWebRTCSignal({

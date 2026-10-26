@@ -1,0 +1,27 @@
+diff --git a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java
+index a9f51cb..9aa8031 100644
+--- a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java
++++ b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java
+@@ -196,14 +196,17 @@ class GetUserMediaImpl {
+ 
+             Log.d(TAG, "getUserMedia(video): " + videoConstraintsMap);
+ 
++            // CameraCaptureController and the native VideoCapturer only ever use this as a plain
++            // Context (CAMERA_SERVICE lookup) - they do not need a live Activity. Preferring the
++            // foreground Activity when one exists is harmless; falling back to the application
++            // context is what lets the camera keep working from a foreground service after the
++            // app's Activity has been destroyed (e.g. swiped from Recents), instead of failing
++            // every such request with "No current Activity."
+             Activity currentActivity = this.reactContext.getCurrentActivity();
+-            if (currentActivity == null) {
+-                errorCallback.invoke("Error", "No current Activity.");
+-                return;
+-            }
++            Context captureContext = currentActivity != null ? currentActivity : this.reactContext;
+ 
+             CameraCaptureController cameraCaptureController = new CameraCaptureController(
+-                    currentActivity, getCameraEnumerator(), videoConstraintsMap);
++                    captureContext, getCameraEnumerator(), videoConstraintsMap);
+ 
+             videoTrack = createVideoTrack(cameraCaptureController);
+         }

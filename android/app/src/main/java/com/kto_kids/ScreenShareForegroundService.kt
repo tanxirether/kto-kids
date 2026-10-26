@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -29,7 +30,16 @@ class ScreenShareForegroundService : Service() {
         val trackId = intent?.getStringExtra(EXTRA_TRACK_ID)?.trim().orEmpty()
         val intervalMs = intent?.getIntExtra(EXTRA_INTERVAL_MS, DEFAULT_INTERVAL_MS) ?: DEFAULT_INTERVAL_MS
         ensureChannel()
-        startForeground(NOTIFICATION_ID, buildNotification(trackId, intervalMs))
+        // Not mediaProjection: after the app is swiped from recents the OS drops the capture
+        // consent, and starting a mediaProjection-type service without it throws
+        // SecurityException on Android 14+, aborting the whole session. react-native-webrtc
+        // runs its own mediaProjection service once getDisplayMedia is granted.
+        val notification = buildNotification(trackId, intervalMs)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+          startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+          startForeground(NOTIFICATION_ID, notification)
+        }
         ScreenShareStateStore.save(
           context = this,
           active = true,

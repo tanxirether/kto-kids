@@ -49,12 +49,7 @@ class LocationForegroundService : Service() {
     super.onCreate()
     try {
       createChannelIfNeeded()
-      val notification = buildNotification()
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-      } else {
-        startForeground(NOTIFICATION_ID, notification)
-      }
+      promoteToForeground()
       LocationTrackingManager.start(this)
       Log.d(tag, "Location foreground service started")
     } catch (t: Throwable) {
@@ -65,8 +60,45 @@ class LocationForegroundService : Service() {
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     // START_STICKY: ask the OS to recreate the service (onCreate runs again) if it's ever
     // killed under memory pressure, instead of leaving location tracking off silently.
+    // Re-promote so camera/microphone types are picked up once those permissions get granted.
+    try {
+      promoteToForeground()
+    } catch (t: Throwable) {
+      Log.e(tag, "re-promote failed: ${t.message}", t)
+    }
     return START_STICKY
   }
+
+  /**
+   * Android 11+ blocks camera/mic use from the background unless the app has a running
+   * foreground service of that type that was started while the app was visible. Declaring them
+   * here (only when granted, otherwise startForeground throws SecurityException) is what lets
+   * the parent's remote camera / one-way audio keep working after the app is swiped away.
+   */
+  private fun promoteToForeground() {
+    val notification = buildNotification()
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+      startForeground(NOTIFICATION_ID, notification)
+      return
+    }
+    var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+    if (granted(android.Manifest.permission.CAMERA)) {
+      type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+    }
+    if (granted(android.Manifest.permission.RECORD_AUDIO)) {
+      type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+    }
+    try {
+      startForeground(NOTIFICATION_ID, notification, type)
+    } catch (t: Throwable) {
+      // Fall back to location-only so tracking never goes down because of camera/mic.
+      Log.w(tag, "startForeground with type=$type failed (${t.message}); using location only")
+      startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+    }
+  }
+
+  private fun granted(permission: String) =
+    checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
   override fun onDestroy() {
     try {

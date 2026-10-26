@@ -3,6 +3,12 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 apply plugin: "com.google.gms.google-services"
 
+// Bundles react-native-vector-icons fonts (MaterialCommunityIcons etc.) into the APK.
+project.ext.vectoricons = [
+    iconFontNames: [ "MaterialCommunityIcons.ttf" ]
+]
+apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")
+
 react {
     autolinkLibrariesWithApp()
 }

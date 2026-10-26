@@ -10,6 +10,21 @@ export function openAccessibilitySettings() {
   DeviceAccessModule?.openAccessibilitySettings?.();
 }
 
+export async function isIgnoringBatteryOptimizations() {
+  if (Platform.OS !== "android" || !DeviceAccessModule?.isIgnoringBatteryOptimizations) return false;
+  return await DeviceAccessModule.isIgnoringBatteryOptimizations();
+}
+
+export function requestIgnoreBatteryOptimizations() {
+  if (Platform.OS !== "android") return;
+  DeviceAccessModule?.requestIgnoreBatteryOptimizations?.();
+}
+
+export async function openAutostartSettings() {
+  if (Platform.OS !== "android" || !DeviceAccessModule?.openAutostartSettings) return false;
+  return await DeviceAccessModule.openAutostartSettings();
+}
+
 export async function isAccessibilityEnabled() {
   if (Platform.OS !== "android") return false;
   if (!DeviceAccessModule?.isAccessibilityEnabled) return false;
