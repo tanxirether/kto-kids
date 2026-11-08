@@ -2,6 +2,7 @@ package com.kto_kids
 
 import android.app.Activity
 import android.content.Intent
+import android.content.IntentFilter
 import android.Manifest
 import android.content.IntentSender
 import android.content.pm.PackageManager
@@ -47,10 +48,33 @@ class DeviceAccessModule(private val reactContext: ReactApplicationContext) :
 
   override fun getName() = "DeviceAccessModule"
 
+  // MediaProjection screen capture, kept alive indefinitely across sessions to avoid repeating
+  // the "Start now" consent dialog, has been observed to silently start producing black frames
+  // (while its track still reports readyState "live") after the screen has gone through one or
+  // more off/on cycles. Capturing while the screen is off is blocked by Android anyway, so there
+  // is nothing lost by dropping the stale capture here; JS re-acquires a fresh one next time.
+  private val screenOffReceiver =
+    object : android.content.BroadcastReceiver() {
+      override fun onReceive(context: android.content.Context?, intent: Intent?) {
+        reactContext
+          .getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+          .emit("kto_screen_off", null)
+      }
+    }
+
   override fun initialize() {
     super.initialize()
     ReactContextHolder.set(reactContext)
     reactContext.addActivityEventListener(activityListener)
+    reactContext.registerReceiver(screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+  }
+
+  override fun invalidate() {
+    super.invalidate()
+    try {
+      reactContext.unregisterReceiver(screenOffReceiver)
+    } catch (_: Exception) {
+    }
   }
 
   private fun isDeviceLocationOn(): Boolean {

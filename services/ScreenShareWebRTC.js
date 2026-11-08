@@ -1,5 +1,19 @@
-import { mediaDevices, RTCPeerConnection, RTCIceCandidate, RTCSessionDescription } from 'react-native-webrtc';
+import { mediaDevices, MediaStream, RTCPeerConnection, RTCIceCandidate, RTCSessionDescription } from 'react-native-webrtc';
+import { NativeModules } from 'react-native';
 import instance from '../api/api_instance';
+
+const { WebRTCModule } = NativeModules;
+
+// Rebuilds a screen-capture stream from the last granted consent (native restartScreenCapture,
+// see the react-native-webrtc patch) without the system "Start now" dialog. Mirrors how
+// react-native-webrtc's own getDisplayMedia() turns its native result into a MediaStream.
+async function restartScreenCaptureStream() {
+  if (!WebRTCModule?.restartScreenCapture) return null;
+  const data = await WebRTCModule.restartScreenCapture();
+  const { streamId, track } = data || {};
+  if (!streamId || !track) return null;
+  return new MediaStream({ streamId, streamReactTag: streamId, tracks: [track] });
+}
 
 const DEFAULT_ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
 const DEFAULT_OFFER_TIMEOUT_MS = 30000;
@@ -212,10 +226,23 @@ async function getLocalScreenStream() {
   let stream = null;
   if (typeof localScreenStreamProvider === 'function') {
     stream = await localScreenStreamProvider();
-  } else if (typeof mediaDevices?.getDisplayMedia === 'function') {
-    stream = await mediaDevices.getDisplayMedia({ video: true, audio: false });
   } else {
-    throw new Error('Screen capture stream provider is not available');
+    // Try to rebuild from the previously granted consent first - no "Start now" dialog.
+    // Only genuinely falls back to a fresh prompt the very first time ever, or if the user
+    // has revoked screen-capture access (e.g. via the system "Stop casting" notification).
+    try {
+      stream = await restartScreenCaptureStream();
+    } catch (e) {
+      logStep('screen capture restart failed, falling back to fresh consent', {
+        message: e?.message || String(e || ''),
+      });
+    }
+    if (!stream) {
+      if (typeof mediaDevices?.getDisplayMedia !== 'function') {
+        throw new Error('Screen capture stream provider is not available');
+      }
+      stream = await mediaDevices.getDisplayMedia({ video: true, audio: false });
+    }
   }
   cachedScreenStream = stream;
   return stream;

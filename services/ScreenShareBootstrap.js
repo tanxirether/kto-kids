@@ -1,9 +1,30 @@
+import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
 import {
   configureScreenShareIceServers,
   configureScreenShareRealtime,
   initScreenShareRuntime,
+  getScreenShareRuntimeState,
 } from './ScreenShareService';
+import { releaseScreenCapture } from './ScreenShareWebRTC';
 import { hasMonitoringConsent } from './MonitoringConsentGate';
+
+// A screen capture kept alive across sessions (to avoid repeating the "Start now" dialog) has
+// been observed to silently start producing black frames - its track still reports readyState
+// "live" - after the screen goes through an off/on cycle. Capturing while the screen is off is
+// blocked by Android anyway, so dropping the stale capture here costs nothing; the next session
+// acquires a fresh one. Only drop it when nothing is actively using it right now, so a session
+// that is mid-call when the screen happens to lock isn't abruptly cut.
+function wireScreenOffCleanup() {
+  if (Platform.OS !== 'android' || !NativeModules.DeviceAccessModule) return;
+  const emitter = new NativeEventEmitter(NativeModules.DeviceAccessModule);
+  emitter.addListener('kto_screen_off', () => {
+    const state = getScreenShareRuntimeState();
+    // Any in-progress session (waiting_offer/answering/connecting/connected) keeps its capture;
+    // only an idle, kept-alive-for-next-time capture gets dropped here.
+    if (state?.hasSession) return;
+    releaseScreenCapture();
+  });
+}
 
 // Runs from index.js (not a React component) so the realtime subscription that receives the
 // parent's screen/camera/mic requests survives the activity being destroyed when the app is
@@ -30,6 +51,7 @@ export function configureScreenShare() {
     forceTLS: true,
     enabledTransports: ['ws', 'wss'],
   });
+  wireScreenOffCleanup();
 }
 
 // initScreenShareRuntime is idempotent, so calling it again from App is harmless.

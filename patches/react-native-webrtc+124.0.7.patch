@@ -1,8 +1,51 @@
+diff --git a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/DisplayUtils.java b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/DisplayUtils.java
+index 50d7d6e..57891ff 100644
+--- a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/DisplayUtils.java
++++ b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/DisplayUtils.java
+@@ -7,9 +7,18 @@ import android.view.WindowManager;
+ 
+ public class DisplayUtils {
+     public static DisplayMetrics getDisplayMetrics(Activity activity) {
++        return getDisplayMetrics((Context) activity.getApplication());
++    }
++
++    /**
++     * Context-based overload so callers can measure the display (e.g. to size a screen-capture
++     * track) without a live Activity, such as when restarting a capture from a foreground service
++     * after the Activity has been destroyed. WindowManager obtained this way reports the default
++     * display's metrics, same as the Activity-based overload above already did internally.
++     */
++    public static DisplayMetrics getDisplayMetrics(Context context) {
+         DisplayMetrics displayMetrics = new DisplayMetrics();
+-        WindowManager windowManager =
+-                (WindowManager) activity.getApplication().getSystemService(Context.WINDOW_SERVICE);
++        WindowManager windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+         windowManager.getDefaultDisplay().getRealMetrics(displayMetrics);
+         return displayMetrics;
+     }
 diff --git a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java
-index a9f51cb..9aa8031 100644
+index a9f51cb..24c3a40 100644
 --- a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java
 +++ b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java
-@@ -196,14 +196,17 @@ class GetUserMediaImpl {
+@@ -60,6 +60,17 @@ class GetUserMediaImpl {
+     private Promise displayMediaPromise;
+     private Intent mediaProjectionPermissionResultData;
+ 
++    /**
++     * Copy of the last granted screen-capture consent Intent, kept around (unlike
++     * {@link #mediaProjectionPermissionResultData}, which this class clears after each use) so a
++     * new capture session can be started from it without showing the system "Start now" dialog
++     * again. This is what lets a long-running monitoring session recover from a stale/black
++     * capture (e.g. after the screen has been off) by rebuilding the capturer instead of either
++     * reusing a broken one or re-prompting the user. Still subject to Android's own rule that
++     * screen content cannot be captured while the screen itself is off/locked.
++     */
++    private Intent lastGrantedScreenCaptureIntent;
++
+     GetUserMediaImpl(WebRTCModule webRTCModule, ReactApplicationContext reactContext) {
+         this.webRTCModule = webRTCModule;
+         this.reactContext = reactContext;
+@@ -196,14 +207,17 @@ class GetUserMediaImpl {
  
              Log.d(TAG, "getUserMedia(video): " + videoConstraintsMap);
  
@@ -25,3 +68,105 @@ index a9f51cb..9aa8031 100644
  
              videoTrack = createVideoTrack(cameraCaptureController);
          }
+@@ -302,6 +316,10 @@ class GetUserMediaImpl {
+         if (track == null) {
+             displayMediaPromise.reject(new RuntimeException("ScreenTrack is null."));
+         } else {
++            // Keep a reusable copy before the field below is cleared, so a later capture (e.g.
++            // after the previous one went stale across a screen off/on cycle) can be rebuilt
++            // without asking the user again.
++            lastGrantedScreenCaptureIntent = mediaProjectionPermissionResultData;
+             createStream(new MediaStreamTrack[] {track}, (streamId, tracksInfo) -> {
+                 WritableMap data = Arguments.createMap();
+ 
+@@ -321,6 +339,34 @@ class GetUserMediaImpl {
+         displayMediaPromise = null;
+     }
+ 
++    /**
++     * Rebuilds a screen-capture track from the last granted consent without showing the system
++     * "Start now" dialog again. Used when a previous capture needs to be replaced (e.g. after it
++     * went stale across a screen off/on cycle) instead of calling {@link #getDisplayMedia} again.
++     * Still fails like any screen capture would if the screen itself is currently off/locked.
++     */
++    void restartScreenCapture(Promise promise) {
++        if (this.displayMediaPromise != null) {
++            promise.reject(new RuntimeException("Another operation is pending."));
++            return;
++        }
++        if (lastGrantedScreenCaptureIntent == null) {
++            promise.reject(new RuntimeException("No previously granted screen capture to restart."));
++            return;
++        }
++
++        this.displayMediaPromise = promise;
++        this.mediaProjectionPermissionResultData = lastGrantedScreenCaptureIntent;
++
++        ThreadUtils.runOnExecutor(() -> {
++            Activity currentActivity = this.reactContext.getCurrentActivity();
++            if (currentActivity != null) {
++                MediaProjectionService.launch(currentActivity);
++            }
++            createScreenStream();
++        });
++    }
++
+     void createStream(MediaStreamTrack[] tracks, BiConsumer<String, ArrayList<WritableMap>> successCallback) {
+         String streamId = UUID.randomUUID().toString();
+         MediaStream mediaStream = webRTCModule.mFactory.createLocalMediaStream(streamId);
+@@ -370,11 +416,16 @@ class GetUserMediaImpl {
+     }
+ 
+     private VideoTrack createScreenTrack() {
+-        DisplayMetrics displayMetrics = DisplayUtils.getDisplayMetrics(reactContext.getCurrentActivity());
++        // Falls back to the application context when there is no foreground Activity (e.g.
++        // restarting the capture from a foreground service); see DisplayUtils' Context overload
++        // and ScreenCaptureController's null-safe orientation listener above.
++        Activity currentActivity = reactContext.getCurrentActivity();
++        Context captureContext = currentActivity != null ? currentActivity : reactContext;
++        DisplayMetrics displayMetrics = DisplayUtils.getDisplayMetrics(captureContext);
+         int width = displayMetrics.widthPixels;
+         int height = displayMetrics.heightPixels;
+         ScreenCaptureController screenCaptureController = new ScreenCaptureController(
+-                reactContext.getCurrentActivity(), width, height, mediaProjectionPermissionResultData);
++                captureContext, width, height, mediaProjectionPermissionResultData);
+         return createVideoTrack(screenCaptureController);
+     }
+ 
+diff --git a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/ScreenCaptureController.java b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/ScreenCaptureController.java
+index c22a241..50105e6 100644
+--- a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/ScreenCaptureController.java
++++ b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/ScreenCaptureController.java
+@@ -35,6 +35,12 @@ public class ScreenCaptureController extends AbstractVideoCaptureController {
+         this.orientationListener = new OrientationEventListener(context) {
+             @Override
+             public void onOrientationChanged(int orientation) {
++                // context may be the application context (not an Activity) when the capture was
++                // (re)started from a foreground service with no Activity on screen; there is no
++                // window to measure in that case, so skip the format change rather than crash.
++                if (!(context instanceof Activity)) {
++                    return;
++                }
+                 DisplayMetrics displayMetrics = DisplayUtils.getDisplayMetrics((Activity) context);
+                 final int width = displayMetrics.widthPixels;
+                 final int height = displayMetrics.heightPixels;
+diff --git a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java
+index 996648c..88d9669 100644
+--- a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java
++++ b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java
+@@ -773,6 +773,15 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
+         ThreadUtils.runOnExecutor(() -> getUserMediaImpl.getDisplayMedia(promise));
+     }
+ 
++    // Rebuilds a screen-capture track from the last getDisplayMedia() consent, without the
++    // system "Start now" dialog. Lets a long-running session recover a stale capture (e.g. after
++    // the screen has been off) by requesting a fresh capturer instead of reusing a broken one or
++    // re-prompting the user every time.
++    @ReactMethod
++    public void restartScreenCapture(Promise promise) {
++        ThreadUtils.runOnExecutor(() -> getUserMediaImpl.restartScreenCapture(promise));
++    }
++
+     @ReactMethod
+     public void getUserMedia(ReadableMap constraints, Callback successCallback, Callback errorCallback) {
+         ThreadUtils.runOnExecutor(() -> getUserMediaImpl.getUserMedia(constraints, successCallback, errorCallback));
